@@ -13,7 +13,7 @@
 <body>
 <div id="app">
   <header id="titlebar">
-    <div class="brand"><span class="brand-mark">CPU<sup>5</sup></span><span class="brand-sub">C → ASM → 機械語 → 回路 → TM ＋ フローチャート</span></div>
+    <div class="brand"><span class="brand-mark">CPU<sup>5</sup></span><span class="brand-sub">C → ASM → 機械語 → 回路 → TM ＋ フロー・数学</span></div>
     <div class="tb-group">
       <label class="sr" for="prog">プログラム</label>
       <select id="prog" title="サンプルプログラム"></select>
@@ -35,6 +35,7 @@
       <button class="seg-b" data-mode="detail" title="1 層を大きく、他は縮小（2）">詳細</button>
       <button class="seg-b" data-mode="full" title="全層を最大の細かさで（3・高負荷）">全体 <small>高負荷</small></button>
     </div>
+    <label class="tb-group tmchk" title="チューリングマシン層も同時に動かす（重いときは外せます）"><input id="tm-on" type="checkbox" checked> TM</label>
     <div class="tb-group right">
       <button id="b-defs" class="btn ghost" title="すべての定義を一覧（D）">定義一覧</button>
       <span id="consist" class="consist ok" title="5 層の状態が一致しているか">一致 ✓</span>
@@ -61,6 +62,10 @@
     <section class="panel" id="p-flow" data-level="flow">
       <div class="ph"><span class="lv lv-flow">流れ</span><span class="tab">main.flow</span><span class="ph-sub">動作フローチャート（構造化 / 基本ブロック）</span><span class="ph-sp"></span><span class="lod"></span><button class="ph-btn" data-focus="flow" title="この層を詳細表示">⤢</button></div>
       <div class="pb" id="flow-body"></div>
+    </section>
+    <section class="panel" id="p-math" data-level="math">
+      <div class="ph"><span class="lv lv-math">数学</span><span class="tab">math.view</span><span class="ph-sub">アルゴリズムそのもの（式とグラフ）</span><span class="ph-sp"></span><span class="lod"></span><button class="ph-btn" data-focus="math" title="この層を詳細表示">⤢</button></div>
+      <div class="pb" id="math-body"></div>
     </section>
     <section class="panel" id="p-tm" data-level="tm">
       <div class="ph"><span class="lv lv-tm">TM</span><span class="tab">machine.tm</span><span class="ph-sub">遷移関数 δ だけでテープを書き換える</span><span class="ph-sp"></span><span class="lod"></span><button class="ph-btn" data-focus="tm" title="この層を詳細表示">⤢</button></div>
@@ -109,6 +114,7 @@
 <script src="view-circuit.js"></script>
 <script src="view-tm.js"></script>
 <script src="view-flow.js"></script>
+<script src="view-math.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

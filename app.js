@@ -17,14 +17,19 @@ app.panels.mc = new window.McPanel($('#mc-body'), app);
 app.panels.circ = new window.CircuitPanel($('#circ-body'), app);
 app.panels.tm = new window.TMPanel($('#tm-body'), app);
 app.panels.flow = new window.FlowPanel($('#flow-body'), app);
-const ORDER = ['c', 'asm', 'mc', 'circ', 'flow', 'tm'];
+app.panels.math = new window.MathPanel($('#math-body'), app);
+const ORDER = ['c', 'asm', 'mc', 'circ', 'flow', 'math', 'tm'];
 
 /* ---------------- プログラム ---------------- */
 const sel = $('#prog');
-PROGRAMS.forEach((p, i) => { const o = document.createElement('option'); o.value = i; o.textContent = p.name; sel.appendChild(o); });
-sel.onchange = () => { app.loadSource(PROGRAMS[+sel.value].src, 'c'); };
+{ const groups = {}; PROGRAMS.forEach((p, i) => { let g = groups[p.group]; if (!g) { g = groups[p.group] = document.createElement('optgroup'); g.label = p.group; sel.appendChild(g); } const o = document.createElement('option'); o.value = i; o.textContent = p.name; g.appendChild(o); }); }
+app.preset = null;
+sel.onchange = () => { app.preset = PROGRAMS[+sel.value]; app.loadSource(app.preset.src, 'c', app.preset); };
+const tmBox = $('#tm-on');
+tmBox.onchange = () => { if (app.sim) { app.sim.setTM(tmBox.checked); app.panels.tm.setEnabled(tmBox.checked); app.refresh(true); } };
 
-app.loadSource = (src, mode) => {
+app.loadSource = (src, mode, preset) => {
+  if (preset === undefined && mode === 'c' && app.preset && app.preset.src !== src) app.preset = null;
   const prog = CPU.buildProgram(src, mode);
   if (!prog.ok) {
     if (mode === 'c') app.panels.c.showErrors(prog.errors.filter(e => e.level === 'c').concat(prog.errors.filter(e => e.level === 'asm').map(e => ({ line: 0, msg: '（翻訳後のアセンブリ）' + e.msg }))));
@@ -32,7 +37,12 @@ app.loadSource = (src, mode) => {
     return false;
   }
   app.prog = prog;
-  app.sim = new CPU.Sim(prog);
+  app.sim = new CPU.Sim(prog, { useTM: tmBox.checked });
+  // TM が 1 命令に 500 万歩以上かかるなら自動で省略
+  if (app.sim.useTM && app.sim.segN > 5e6) { tmBox.checked = false; app.sim.setTM(false); }
+  app.panels.tm.setEnabled(app.sim.useTM);
+  app.panels.math.attach(app.sim);
+  app.panels.math.load(prog, mode === 'c' ? (preset || app.preset) : null);
   app.panels.c.load(prog, src);
   app.panels.asm.load(prog);
   app.panels.mc.load(prog);
@@ -79,7 +89,7 @@ app.setMode = (mode, focus) => {
     el.classList.remove('thumb');
     let lod = mode;
     if (mode === 'detail') {
-      if (id === app.focus) { el.style.gridColumn = '1'; el.style.gridRow = '1 / 6'; lod = 'detail'; }
+      if (id === app.focus) { el.style.gridColumn = '1'; el.style.gridRow = '1 / 7'; lod = 'detail'; }
       else { el.style.gridColumn = '2'; el.style.gridRow = String(row++); el.classList.add('thumb'); lod = 'overview'; }
     }
     el.querySelector('.lod').textContent = LODNAME[lod];
@@ -104,11 +114,11 @@ app.refreshTrace = () => {
 /* ---------------- 状態表示 ---------------- */
 app.refresh = (instrChanged) => {
   const sim = app.sim; if (!sim) return;
-  if (instrChanged) { app.panels.c.update(); app.panels.asm.update(); app.panels.mc.update(); app.panels.flow.update(); }
+  if (instrChanged) { app.panels.c.update(); app.panels.asm.update(); app.panels.mc.update(); app.panels.flow.update(); app.panels.math.update(); }
   app.panels.tm.update();
   const ck = sim.check;
   const cs = $('#consist');
-  const n = sim.cI ? 5 : 4;
+  const n = ck.layers;
   cs.className = 'consist ' + (ck.ok ? 'ok' : 'ng');
   cs.textContent = ck.ok ? '一致 ✓ ' + n + '/' + n + (sim.cI && !ck.cSync ? '（C は命令の途中）' : '') : '不一致 ✗';
   cs.title = ck.ok ? '命令ごとに、C・ASM・機械語・回路・TM のレジスタ / PC / 停止状態を突き合わせています' : ck.bad.join('\n');
@@ -117,7 +127,7 @@ app.refresh = (instrChanged) => {
   $('#sb-run').textContent = sim.halted ? '■ 停止（HALT）' : app.running ? '● 実行中' : '⏸ 一時停止';
   $('#sb-instr').textContent = '命令 ' + sim.instr;
   $('#sb-pc').textContent = 'PC ' + sim.mI.pc;
-  $('#sb-tm').textContent = 'TM ' + sim.tm.steps.toLocaleString() + ' 歩';
+  $('#sb-tm').textContent = sim.useTM ? 'TM ' + sim.tm.steps.toLocaleString() + ' 歩' : 'TM 省略';
   $('#sb-clk').textContent = 'クロック ' + sim.ck.cycles;
   if (sim.halted && app.running) app.setRunning(false);
 };
@@ -137,6 +147,7 @@ function loop(t) {
     app.panels.circ.frame(dt);
     app.panels.tm.frame(dt);
     app.panels.flow.frame(dt);
+    app.panels.math.frame(dt);
     if (t - lastTrace > 120) { app.refreshTrace(); lastTrace = t; }
   }
   requestAnimationFrame(loop);
@@ -153,6 +164,7 @@ const CATS = [
   { id: 'gates', name: '全ゲート', gates: true },
   { id: 'tm', name: 'TM の定義', f: d => d.level === 'tm' && !d.rule },
   { id: 'tmd', name: 'TM の設計（翻訳の考え方）', f: d => d.level === 'tmd' },
+  { id: 'math', name: '数学（アルゴリズム）', f: d => d.level === 'math' },
   { id: 'code', name: 'TM の擬似コード', code: true },
   { id: 'states', name: 'TM の状態', states: true },
   { id: 'delta', name: 'TM の遷移 δ', f: d => !!d.rule },
@@ -168,11 +180,15 @@ function renderDefs(hit) {
   const q = $('#defs-q').value.trim().toLowerCase();
   $('#defs-nav').innerHTML = CATS.map(c => '<button data-c="' + c.id + '" class="' + (c.id === defCat ? 'on' : '') + '">' + c.name + '<small>' + defItems(c).length + '</small></button>').join('');
   $('#defs-nav').querySelectorAll('button').forEach(b => b.onclick = () => { defCat = b.dataset.c; renderDefs(); });
-  let items = q ? CATS.flatMap(defItems).filter(d => (d.id + d.title + d.body).toLowerCase().includes(q)).slice(0, 400) : defItems(CATS.find(c => c.id === defCat));
+  let items = q ? CATS.flatMap(defItems).filter(d => (d.id + d.title + d.body).toLowerCase().includes(q)) : defItems(CATS.find(c => c.id === defCat));
+  const total = items.length;
+  if (hit) { const k = items.findIndex(d => d.id === hit); if (k > 300) items = items.slice(k - 50, k + 250); }
+  if (items.length > 600) items = items.slice(0, 600);
   const tm = app.sim && app.sim.tm;
   const intro = !q && defCat === 'delta' ? '<p class="dim">状態 ' + CPU.TM.machine.states.length + ' 個・遷移 ' + CPU.TM.machine.rules.length + ' 本。右の数字はこの実行で使われた回数。</p>' :
     !q && defCat === 'gates' ? '<p class="dim">ゲート ' + CPU.Circuit.netlist.gates.length + ' 個・ネット ' + CPU.Circuit.netlist.nets.length + ' 本・組合せ回路の最大深さ ' + CPU.Circuit.netlist.maxDepth + ' 段。</p>' : '';
-  $('#defs-list').innerHTML = intro + items.map(d => '<div class="defi' + (d.id === hit ? ' hit' : '') + '" id="def-' + U.esc(d.id) + '">' +
+  const more = total > items.length ? '<p class="dim">' + total + ' 件のうち ' + items.length + ' 件を表示しています。検索で絞り込めます（例: CNT_12, LI_, FA3）。</p>' : '';
+  $('#defs-list').innerHTML = intro + more + items.map(d => '<div class="defi' + (d.id === hit ? ' hit' : '') + '" id="def-' + U.esc(d.id) + '">' +
     (d.rule && tm ? '<span class="cnt">×' + tm.ruleCount[d.rule.id] + '</span>' : '') +
     '<span class="t">' + U.esc(d.title) + '</span><span class="id">' + U.esc(d.id) + '</span><div class="b">' + U.esc(d.body) + '</div></div>').join('');
   if (hit) { const e = document.getElementById('def-' + hit); if (e) e.scrollIntoView({ block: 'center' }); }
@@ -209,7 +225,7 @@ document.addEventListener('keydown', e => {
 let v = null;
 try { v = JSON.parse(localStorage.getItem('cpu5-view') || 'null'); } catch (e) {}
 const hash = location.hash.replace('#', '');
-app.loadSource(PROGRAMS[3].src, 'c'); sel.value = 3;
+{ const i = PROGRAMS.findIndex(p => p.id === 'newton'); app.preset = PROGRAMS[i]; sel.value = i; app.loadSource(app.preset.src, 'c', app.preset); }
 app.setMode(['overview', 'detail', 'full'].includes(hash) ? hash : (v && v.mode) || 'overview', v && v.focus);
 requestAnimationFrame(loop);
 })();

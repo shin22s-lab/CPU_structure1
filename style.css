@@ -70,21 +70,23 @@ select { max-width: 220px; }
 /* ---- パネル格子 ---- */
 #grid { flex: 1; min-height: 0; display: grid; gap: 4px; padding: 4px; padding-left: max(4px, env(safe-area-inset-left, 0px)); padding-right: max(4px, env(safe-area-inset-right, 0px)); }
 #grid.mode-overview {
-  grid-template-columns: minmax(260px, 1fr) minmax(380px, 1.75fr) minmax(250px, 1fr);
-  grid-template-rows: 1fr 1fr minmax(190px, .72fr);
-  grid-template-areas: "c circ mc" "asm circ flow" "tm tm tm";
+  grid-template-columns: minmax(250px, 1fr) minmax(360px, 1.55fr) minmax(250px, 1fr) minmax(250px, 1fr);
+  grid-template-rows: 1fr 1fr minmax(180px, .68fr);
+  grid-template-areas: "c circ mc math" "asm circ flow math" "tm tm tm tm";
 }
+#grid.mode-overview #p-math { grid-area: math; }
 #grid.mode-overview #p-flow { grid-area: flow; }
 #grid.mode-overview #p-c { grid-area: c; } #grid.mode-overview #p-asm { grid-area: asm; }
 #grid.mode-overview #p-mc { grid-area: mc; } #grid.mode-overview #p-circ { grid-area: circ; } #grid.mode-overview #p-tm { grid-area: tm; }
-#grid.mode-detail { grid-template-columns: minmax(0, 3fr) minmax(240px, 1fr); grid-template-rows: repeat(5, minmax(0, 1fr)); }
+#grid.mode-detail { grid-template-columns: minmax(0, 3fr) minmax(240px, 1fr); grid-template-rows: repeat(6, minmax(0, 1fr)); }
 #grid.mode-full { overflow: auto; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-rows: auto; align-content: start; }
 #grid.mode-full #p-c { grid-column: 1; grid-row: 1; height: 720px; }
 #grid.mode-full #p-asm { grid-column: 2; grid-row: 1; height: 720px; }
 #grid.mode-full #p-mc { grid-column: 2; grid-row: 2; height: 760px; }
 #grid.mode-full #p-flow { grid-column: 1; grid-row: 2; height: 760px; }
-#grid.mode-full #p-circ { grid-column: 1 / 3; grid-row: 3; height: 1200px; }
-#grid.mode-full #p-tm { grid-column: 1 / 3; grid-row: 4; height: 1300px; }
+#grid.mode-full #p-math { grid-column: 1 / 3; grid-row: 3; height: 640px; }
+#grid.mode-full #p-circ { grid-column: 1 / 3; grid-row: 4; height: 1250px; }
+#grid.mode-full #p-tm { grid-column: 1 / 3; grid-row: 5; height: 1300px; }
 
 .panel { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--panel); border: 1px solid #111; overflow: hidden; }
 .panel.thumb .ph-sub { display: none; }
@@ -94,6 +96,7 @@ select { max-width: 220px; }
 .ph-sp { flex: 1; }
 .lv { height: 100%; display: flex; align-items: center; padding: 0 8px; font: 700 11px var(--mono); color: #111; background: var(--lvc); }
 .lv-flow { --lvc: #7fd4ff; } #p-flow { --lvc: #7fd4ff; }
+.lv-math { --lvc: #ff9cf0; } #p-math { --lvc: #ff9cf0; }
 .lv-c { --lvc: var(--c); } .lv-asm { --lvc: var(--asm); } .lv-mc { --lvc: var(--mc); } .lv-circ { --lvc: var(--circ); } .lv-tm { --lvc: var(--tm); }
 #p-c { --lvc: var(--c); } #p-asm { --lvc: var(--asm); } #p-mc { --lvc: var(--mc); } #p-circ { --lvc: var(--circ); } #p-tm { --lvc: var(--tm); }
 .lod { font: 10px var(--mono); color: var(--fg-dim); border: 1px solid var(--line); padding: 0 5px; border-radius: 2px; }
@@ -275,3 +278,25 @@ pre.def .here { background: var(--hl-active); outline: 1px solid var(--hl-active
 .tl-rule.next { color: #8fbfff; font-size: 11.5px; }
 .tl-p { line-height: 1.6; margin: 3px 0; }
 .tm-line { color: var(--warn); }
+
+.tmchk { font-size: 12px; color: var(--fg-dim); cursor: pointer; }
+.tmchk input { accent-color: var(--tm); }
+/* RAM ダンプ */
+.ramdump { flex: none; border-top: 1px solid #111; background: var(--panel-2); padding: 4px 8px 6px; font: 11px var(--mono); }
+.ram-h { color: var(--fg-dim); font: 600 10.5px var(--ui); letter-spacing: .06em; margin-bottom: 3px; }
+.ram-g { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 1px 6px; }
+.ram-g span { color: #8b939d; }
+.ram-g span.own { color: #5fd3c4; }
+.ram-g span.on { color: #fff; background: var(--hl-active); }
+.ram-g span.was { color: #fff; background: rgba(255, 255, 255, .08); }
+/* δ 表（見えている行だけ描く） */
+.vt-head, .vt-row { display: grid; grid-template-columns: 52px minmax(90px, 1.4fr) 30px minmax(90px, 1.4fr) 30px 26px 64px; gap: 0 6px; padding: 0 6px; white-space: nowrap; }
+.vt-head { position: sticky; top: 0; background: var(--panel-2); color: var(--fg-dim); font: 500 10.5px var(--ui); padding-block: 3px; }
+.dtab:has(.vt-body) { display: flex; flex-direction: column; }
+.vt-body { flex: 1; min-height: 0; overflow: auto; position: relative; }
+.vt-pad { width: 1px; }
+.vt-rows { position: absolute; inset: 0 0 auto 0; }
+.vt-row { position: absolute; left: 0; right: 0; height: 17px; line-height: 17px; border-bottom: 1px solid #262626; }
+.vt-row span { overflow: hidden; text-overflow: ellipsis; }
+.vt-row.last { background: var(--hl-active); color: #fff; }
+@media (max-width: 1500px) { #grid.mode-overview { grid-template-columns: minmax(240px, 1fr) minmax(340px, 1.5fr) minmax(240px, 1fr); grid-template-areas: "c circ mc" "asm circ flow" "math tm tm"; } }

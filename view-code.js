@@ -3,7 +3,7 @@
 'use strict';
 const CPU = window.CPU5, U = window.U;
 const LH = 19;
-const C_TYPES = new Set(['unsigned', 'char', 'int', 'void', 'uint8_t', 'register', 'signed', 'short', 'long']);
+const C_TYPES = new Set(['unsigned', 'char', 'int', 'void', 'uint8_t', 'uint16_t', 'register', 'signed', 'short', 'long', 'static', 'const']);
 window.C_condText = null;
 
 /* ------------------------------------------------------------------ */
@@ -161,23 +161,28 @@ function roleRange(ev, src) {
   if (!ev) return null;
   const n = ev.node;
   switch (ev.role) {
-    case 'asg': case 'brk': return [n.s, n.e];
+    case 'asg': case 'brk': case 'call': return [n.s, n.e];
     case 'cond': return n.head;
     case 'back': return n.close;
     case 'skip': return n.elseKw || n.close;
     case 'halt': return n.k === 'main' ? n.close : [n.s, n.e];
+    case 'ret': return n.k === 'func' ? n.close : [n.s, n.e];
   }
   return [n.s, n.e];
 }
-const ROLE_JA = { asg: '代入・計算', cond: '条件を調べる', back: 'ループの先頭へ戻る', skip: 'else を飛ばす', brk: 'ループを抜ける (break)', halt: '停止' };
+const ROLE_JA = { asg: '代入・計算', cond: '条件を調べる', back: 'ループの先頭へ戻る', skip: 'else を飛ばす', brk: 'ループを抜ける (break)', halt: '停止', call: '関数を呼ぶ', ret: '呼び出し元へ戻る' };
 const RULE_HERE = { 'T-WHILE': { cond: 0, back: 2 }, 'T-IF': { cond: 0 }, 'T-IFELSE': { cond: 0, skip: 2 } };
-const STRUCT = { while: 'T-WHILE', if: null };
+const opnd = o => !o ? '' : o.t === 'num' ? String(o.v) : o.t === 'var' ? o.v.name : o.a.name + '[' + opnd(o.i) + ']';
 function condText(c) {
   if (!c) return '';
-  const a = c.a && c.a.name, b = c.b && c.b.name;
+  const a = c.a && c.a.name, b = opnd(c.b);
   return { true: '1', nz: a, z: a + ' == 0', lt: a + ' < ' + b, gt: a + ' > ' + b, le: a + ' <= ' + b, ge: a + ' >= ' + b, eq: a + ' == ' + b, ne: a + ' != ' + b }[c.k];
 }
+const exprText = e => e.t === 'bin' ? opnd(e.a) + ' ' + e.op + ' ' + opnd(e.b) : opnd(e);
+const dstText = d => d.t === 'var' ? d.v.name : opnd(d);
+window.C_TXT = { condText, exprText, dstText, opnd };
 function hl(body, k) { return body.split('\n').map((l, i) => i === k ? '<span class="here">' + U.esc(l) + '</span>' : U.esc(l)).join('\n'); }
+function allFuncs(ast) { return [ast].concat(Object.values(ast.funcs || {}).filter(f => f.k === 'func')); }
 
 class CPanel {
   constructor(body, app) {
@@ -191,18 +196,11 @@ class CPanel {
     body.append(this.banner, this.bar);
     const split = U.el('div', 'split');
     body.appendChild(split);
-    this.ed = new CodeView(split, {
-      id: 'ed-c', label: 'C ソース',
-      classify: classifyC,
-      onEdit: t => app.editSource(t, 'c'),
-      onHover: (off) => this.hover(off),
-    });
+    this.ed = new CodeView(split, { id: 'ed-c', label: 'C ソース', classify: classifyC, onEdit: t => app.editSource(t, 'c'), onHover: off => this.hover(off) });
     this.side = U.el('div', 'side'); split.appendChild(this.side);
     this.watchBar = U.el('div', 'bar'); body.appendChild(this.watchBar);
     this.prob = U.el('div', 'problems'); this.prob.hidden = true; body.appendChild(this.prob);
-    this.lod = 'overview';
-    this.lastC = '';
-    this.prevEnv = {};
+    this.lod = 'overview'; this.lastC = ''; this.prevEnv = {};
   }
   load(prog, src) {
     if (prog.mode === 'c') { this.lastC = src; if (this.ed.text !== src) this.ed.setText(src); }
@@ -225,43 +223,40 @@ class CPanel {
       if (P && !P.c) this.ed.setDeco({});
       return;
     }
-    const cI = sim.cI, ev = cI.cur, src = this.ed.text;
+    const cI = sim.cI, ev = cI.cur, src = this.ed.text, ast = P.c.ast;
     const marks = [];
     if (ev) {
-      for (const n of ev.stack) if (n.k === 'while' && n !== ev.node && !n.sugarZero) marks.push({ s: n.head[0], e: n.head[1], cls: 'mk-outer' });
+      for (const n of ev.stack) if (n.k === 'while' && n !== ev.node) marks.push({ s: n.head[0], e: n.head[1], cls: 'mk-outer' });
       const r = roleRange(ev, src); if (r) marks.push({ s: r[0], e: r[1], cls: 'mk-act' });
     }
     const curLine = ev ? this.lineOf(roleRange(ev, src)[0]) : -1;
     const deco = { marks, curLine };
-    // 対応する命令アドレス・実行回数
     if (this.lod !== 'overview') {
-      const byLine = {};
-      const cnt = sim.aI.count;
+      const byLine = {}, cnt = sim.aI.count;
       let maxc = 1;
       P.asm.instrs.forEach(it => {
         if (!it.meta) return;
-        const r = roleRange({ node: it.meta.node, role: it.meta.role }, src);
-        const ln = this.lineOf(r[0]);
+        const ln = this.lineOf(roleRange({ node: it.meta.node, role: it.meta.role }, src)[0]);
         (byLine[ln] = byLine[ln] || { a: [], n: 0 }).a.push(it.addr);
-        byLine[ln].n += cnt[it.addr]; maxc = Math.max(maxc, byLine[ln].n);
+        if (it.meta.idx === 0) byLine[ln].n += cnt[it.addr];
+        maxc = Math.max(maxc, byLine[ln].n);
       });
-      const inl = {}, heat = {};
-      const vals = {};
+      const inl = {}, heat = {}, vals = {};
+      const add = (ln, x) => { (vals[ln] = vals[ln] || new Set()).add(x); };
       const walk = n => {
         if (!n) return;
         if (n.k === 'block') return n.body.forEach(walk);
-        const nm = [];
-        if (n.k === 'asg') { nm.push(n.dst.name); if (n.expr.v && n.expr.v.name) nm.push(n.expr.v.name); if (n.expr.a && n.expr.a.v.name) nm.push(n.expr.a.v.name); if (n.expr.b && n.expr.b.t === 'var') nm.push(n.expr.b.v.name); }
-        if (n.c) { if (n.c.a) nm.push(n.c.a.name); if (n.c.b) nm.push(n.c.b.name); }
-        if (nm.length) { const ln = this.lineOf(n.s); vals[ln] = vals[ln] || new Set(); nm.forEach(x => vals[ln].add(x)); }
+        const ln = this.lineOf(n.s);
+        if (n.k === 'asg') { if (n.dst.t === 'var') add(ln, n.dst.v.name); for (const o of [n.expr, n.expr.a, n.expr.b]) if (o && o.t === 'var') add(ln, o.v.name); }
+        if (n.c) { if (n.c.a) add(ln, n.c.a.name); if (n.c.b && n.c.b.t === 'var') add(ln, n.c.b.v.name); }
         if (n.k === 'while') walk(n.body);
         if (n.k === 'if') { walk(n.then); walk(n.else); }
       };
-      walk(P.c.ast.body);
-      P.c.ast.vars.forEach(v => { const ln = this.lineOf(v.s); (inl[ln] = inl[ln] || '') ; inl[ln] += '<span class="inlay">' + v.name + ' → レジスタ ' + CPU.REGN[v.reg] + '</span>'; });
+      allFuncs(ast).forEach(f => walk(f.body));
+      ast.vars.forEach(v => { const ln = this.lineOf(v.s); inl[ln] = (inl[ln] || '') + '<span class="inlay">' + v.name + ' → ' + CPU.REGN[v.reg] + '</span>'; });
+      ast.arrays.forEach(a => { const ln = this.lineOf(a.s); inl[ln] = (inl[ln] || '') + '<span class="inlay">' + a.name + ' → RAM ' + a.base + '〜' + (a.base + a.len - 1) + '</span>'; });
       for (const ln in byLine) {
-        const a = byLine[ln].a;
-        const s = a.length > 1 ? '@' + a.join(',') : '@' + a[0];
+        const a = byLine[ln].a, s = a.length > 3 ? '@' + a[0] + '〜' + a[a.length - 1] : '@' + a.join(',');
         inl[ln] = (inl[ln] || '') + '<span class="inlay">' + s + (this.lod === 'full' ? '  ×' + byLine[ln].n : '') + '</span>';
         if (this.lod === 'full') heat[ln] = byLine[ln].n / maxc;
       }
@@ -269,20 +264,21 @@ class CPanel {
       deco.inlays = inl; deco.heat = heat;
     }
     this.ed.setDeco(deco);
-    // パンくず
     const parts = ['main()'];
-    if (ev) for (const n of ev.stack) if (n.k === 'while' || n.k === 'if') parts.push(U.esc(src.slice(n.head[0], n.head[1]).replace(/\s+/g, ' ')));
+    if (ev) for (const n of ev.stack) {
+      if (n.k === 'func') parts.push(n.name + '()');
+      else if (n.k === 'while' || n.k === 'if') parts.push(U.esc(src.slice(n.head[0], n.head[1]).replace(/\s+/g, ' ')));
+    }
     this.crumbs.innerHTML = parts.map((p, i) => '<span class="' + (i === parts.length - 1 ? 'cur' : '') + '">' + p + '</span>').join('<span class="sep">›</span>') +
       '<span class="sep">›</span><span class="cur">' + (ev ? ROLE_JA[ev.role] : (cI.halted ? '停止' : '')) + '</span>';
-    // ウォッチ
     const changed = n => this.prevEnv[n] !== undefined && this.prevEnv[n] !== cI.env[n];
+    const arrTxt = a => cI.arr[a.name].join(', ');
     if (this.lod === 'overview') {
-      this.watchBar.innerHTML = '<div class="watch-inline">' + P.c.ast.vars.map(v => '<span class="' + (changed(v.name) ? 'flash' : '') + '"><b>' + v.name + '</b> = ' + cI.env[v.name] + '</span>').join('') + '</div>';
+      this.watchBar.innerHTML = '<div class="watch-inline">' + ast.vars.map(v => '<span class="' + (changed(v.name) ? 'flash' : '') + '"><b>' + v.name + '</b> = ' + cI.env[v.name] + '</span>').join('') +
+        ast.arrays.map(a => '<span><b>' + a.name + '</b> = [' + U.esc(arrTxt(a)) + ']</span>').join('') + '</div>';
     } else {
-      const a = sim.aI.cur();
-      const m = a && a.meta;
-      const rule = m && U.def(m.rule);
-      let rt = rule ? hl(rule.body, m.idx) : '';
+      const a = sim.aI.cur(), m = a && a.meta, rule = m && U.def(m.rule);
+      const rt = rule ? hl(rule.body, rule.id === 'T-MUL' || rule.id === 'T-DIV' ? -1 : m.idx) : '';
       let srt = '';
       if (m && (m.role === 'cond' || m.role === 'back' || m.role === 'skip')) {
         const sr = m.node.k === 'while' ? 'T-WHILE' : m.node.else ? 'T-IFELSE' : 'T-IF';
@@ -293,16 +289,18 @@ class CPanel {
       if (ev) {
         const n = ev.node;
         if (ev.role === 'cond') { const t = cI.test(n.c); concrete = condText(n.c) + ' → ' + (t ? '真' : '偽') + ' → ' + (n.k === 'while' ? (t ? '本体を実行' : 'ループを抜ける') : (t ? 'then 側' : (n.else ? 'else 側' : '何もしない'))); }
-        else if (ev.role === 'asg') concrete = n.dst.name + ' : ' + cI.env[n.dst.name] + ' → ' + cI.evalExpr(n.expr);
+        else if (ev.role === 'asg') concrete = dstText(n.dst) + ' ← ' + exprText(n.expr) + ' = ' + cI.evalExpr(n.expr);
+        else if (ev.role === 'call') concrete = n.name + '() の本体へ（戻り番地を LR に置く）';
         else concrete = ROLE_JA[ev.role];
-        if (ev.cnt > 1 && m) concrete += '\n（この動作は命令 ' + ev.cnt + ' 個。いま ' + (m.idx + 1) + ' 個目）';
+        if (ev.cnt > 1 && m) concrete += '\n（この動作は命令 ' + ev.cnt + ' 個' + (m.rule === 'T-MUL' || m.rule === 'T-DIV' ? '・ループあり' : '') + '。いま ' + (m.idx + 1) + ' 個目）';
       }
       this.side.innerHTML =
         '<h4>変数（ウォッチ）</h4><div class="box"><table class="watch">' +
-        P.c.ast.vars.map(v => '<tr class="' + (changed(v.name) ? 'flash' : '') + '"><td>' + v.name + '</td><td>' + cI.env[v.name] + '</td><td>' + U.bits(cI.env[v.name], 8) + '</td><td class="dim">reg ' + CPU.REGN[v.reg] + '</td></tr>').join('') + '</table></div>' +
-        '<h4>いまの動作 — C の意味</h4><div class="box">' + (cdef ? '<span class="deflink" data-def="' + cdef.id + '">' + U.esc(cdef.title) + '</span><pre class="def">' + U.esc(cdef.body) + '</pre><div class="mono" style="margin-top:4px;color:var(--warn)">' + U.esc(concrete) + '</div>' : '<span class="dim">停止しました</span>') + '</div>' +
+        ast.vars.map(v => '<tr class="' + (changed(v.name) ? 'flash' : '') + '"><td>' + v.name + '</td><td>' + cI.env[v.name] + '</td><td class="dim">' + CPU.REGN[v.reg] + '</td></tr>').join('') +
+        ast.arrays.map(x => '<tr><td>' + x.name + '[]</td><td colspan="2" style="white-space:normal">' + U.esc(arrTxt(x)) + '</td></tr>').join('') + '</table></div>' +
+        '<h4>いまの動作 — C の意味</h4><div class="box">' + (cdef ? '<span class="deflink" data-def="' + cdef.id + '">' + U.esc(cdef.title) + '</span><pre class="def">' + U.esc(cdef.body) + '</pre><div class="mono" style="margin-top:4px;color:var(--warn);white-space:pre-wrap">' + U.esc(concrete) + '</div>' : '<span class="dim">停止しました</span>') + '</div>' +
         (rule ? '<h4>翻訳規則 — どの命令になったか</h4><div class="box">' + srt + '<span class="deflink" data-def="' + rule.id + '">' + U.esc(rule.title) + '</span><pre class="def">' + rt + '</pre><div class="mono dim" style="margin-top:4px">この命令: @' + a.addr + '  ' + U.esc(CPU.disasm(P.words[a.addr])) + '</div></div>' : '') +
-        (P.c.temp >= 0 ? '<h4>作業用レジスタ</h4><div class="box mono dim">' + CPU.REGN[P.c.temp] + ' = ' + sim.aI.R[P.c.temp] + '（比較・一時計算。C の変数ではない）</div>' : '');
+        (P.c.temps.length ? '<h4>作業用レジスタ</h4><div class="box mono dim">' + P.c.temps.map(t => CPU.REGN[t] + ' = ' + sim.aI.R[t]).join('  ') + '<br>（比較・掛け算・割り算・番地計算。C の変数ではない）</div>' : '');
       this.side.querySelectorAll('[data-def]').forEach(e => e.onclick = () => this.app.openDefs(e.dataset.def));
     }
     this.prevEnv = Object.assign({}, cI.env);
@@ -312,16 +310,20 @@ class CPanel {
     const src = this.ed.text;
     const tok = CPU.cTokenize(src, true).find(t => off >= t.s && off < t.e);
     if (!tok || tok.t === 'ws') return null;
-    const sim = this.app.sim;
-    const vars = P.c ? P.c.ast.vars : [];
-    if (tok.t === 'id' && tok.v !== 'main') {
-      const v = vars.find(x => x.name === tok.v);
-      if (v) return { level: 'c', id: 'C-VAR', title: 'unsigned char ' + v.name + '  →  レジスタ ' + CPU.REGN[v.reg], body: U.def('C-VAR').body, value: sim && sim.cI ? v.name + ' = ' + sim.cI.env[v.name] + ' = ' + CPU.bin(sim.cI.env[v.name], 8) + '₂' : '' };
+    const sim = this.app.sim, ast = P.c && P.c.ast;
+    if (tok.t === 'id' && ast) {
+      const v = ast.vars.find(x => x.name === tok.v);
+      if (v) return { level: 'c', id: 'C-VAR', title: 'unsigned int ' + v.name + '  →  レジスタ ' + CPU.REGN[v.reg], body: U.def('C-VAR').body, value: sim && sim.cI ? v.name + ' = ' + sim.cI.env[v.name] + ' = ' + CPU.bin(sim.cI.env[v.name], 16) + '₂' : '' };
+      const a = ast.arrays.find(x => x.name === tok.v);
+      if (a) return { level: 'c', id: 'C-ARR', title: 'unsigned int ' + a.name + '[' + a.len + ']  →  RAM ' + a.base + '〜' + (a.base + a.len - 1), body: U.def('C-ARR').body, value: sim && sim.cI ? '[' + sim.cI.arr[a.name].join(', ') + ']' : '' };
+      const f = ast.funcs[tok.v];
+      if (f && f.k === 'func') return { level: 'c', id: 'C-CALL', title: 'void ' + f.name + '(void)', body: U.def('C-CALL').body + '\n\n翻訳: ' + U.def('T-CALL').body + ' / 末尾は ' + U.def('T-FRET').body };
     }
-    const map = { while: 'C-WHILE', for: 'C-WHILE', if: 'C-IF', else: 'C-IF', return: 'C-RET', break: 'C-BREAK', '++': 'C-INC', '--': 'C-DEC', '+=': 'C-INC', '-=': 'C-DEC', '>>=': 'C-ARITH', '<<=': 'C-ARITH', '>>': 'C-ARITH', '<<': 'C-ARITH', '+': 'C-ARITH', '-': 'C-ARITH', '<': 'C-COND', '>': 'C-COND', '<=': 'C-COND', '>=': 'C-COND', '==': 'C-COND', '!=': 'C-COND', '!': 'C-COND', unsigned: 'C-VAR', char: 'C-VAR', uint8_t: 'C-VAR', '=': 'C-ASG', '}': 'C-END' };
+    const map = { while: 'C-WHILE', for: 'C-WHILE', if: 'C-IF', else: 'C-IF', return: 'C-RET', break: 'C-BREAK', '++': 'C-ARITH', '--': 'C-ARITH', '+=': 'C-ARITH', '-=': 'C-ARITH', '*=': 'C-ARITH', '/=': 'C-ARITH', '%=': 'C-ARITH', '>>=': 'C-ARITH', '<<=': 'C-ARITH', '>>': 'C-ARITH', '<<': 'C-ARITH', '+': 'C-ARITH', '-': 'C-ARITH', '*': 'C-ARITH', '/': 'C-ARITH', '%': 'C-ARITH', '<': 'C-COND', '>': 'C-COND', '<=': 'C-COND', '>=': 'C-COND', '==': 'C-COND', '!=': 'C-COND', '!': 'C-COND', unsigned: 'C-VAR', int: 'C-VAR', uint16_t: 'C-VAR', '=': 'C-ASG', '[': 'C-ARR', '}': 'C-END' };
     const id = map[tok.v];
     if (id) {
-      const tr = { 'C-WHILE': 'T-WHILE', 'C-IF': 'T-IFELSE', 'C-INC': 'T-INC', 'C-DEC': 'T-DEC', 'C-RET': 'T-RET', 'C-BREAK': 'T-BREAK', 'C-ASG': 'T-MOV', 'C-ARITH': { '>>=': 'T-SHR', '>>': 'T-SHR', '<<=': 'T-SHL', '<<': 'T-SHL', '+': 'T-ADD', '-': 'T-SUB' }[tok.v], 'C-COND': { '<': 'T-LT', '>': 'T-GT', '<=': 'T-LE', '>=': 'T-GE', '==': 'T-EQ', '!=': 'T-NE', '!': 'T-Z' }[tok.v] }[id];
+      const ar = { '>>=': 'T-SHR', '>>': 'T-SHR', '<<=': 'T-SHL', '<<': 'T-SHL', '+': 'T-ADD', '+=': 'T-ADD', '++': 'T-ADD', '-': 'T-SUB', '-=': 'T-SUB', '--': 'T-SUB', '*': 'T-MUL', '*=': 'T-MUL', '/': 'T-DIV', '/=': 'T-DIV', '%': 'T-DIV', '%=': 'T-DIV' };
+      const tr = { 'C-WHILE': 'T-WHILE', 'C-IF': 'T-IFELSE', 'C-RET': 'T-RET', 'C-BREAK': 'T-BREAK', 'C-ASG': 'T-MOV', 'C-ARR': 'T-LOAD', 'C-ARITH': ar[tok.v], 'C-COND': { '<': 'T-LT', '>': 'T-GT', '<=': 'T-LE', '>=': 'T-GE', '==': 'T-EQ', '!=': 'T-NE', '!': 'T-Z' }[tok.v] }[id];
       const d = U.def(id);
       return { level: 'c', id, title: d.title, body: d.body + (tr ? '\n\n翻訳: ' + U.def(tr).title + '\n' + U.def(tr).body : '') };
     }
@@ -332,16 +334,15 @@ class CPanel {
     if (!sim || !sim.cI) return { level: 'c', title: '（C なし）', body: 'アセンブリを直接実行中' };
     const ev = sim.cI.cur;
     if (!ev) return { level: 'c', title: '停止', body: '' };
-    const d = U.def(ev.def);
-    const a = sim.aI.cur(), m = a && a.meta;
-    return { level: 'c', id: d.id, title: d.title, body: ROLE_JA[ev.role] + (ev.role === 'cond' ? '  (' + condText(ev.node.c) + ' → ' + (sim.cI.test(ev.node.c) ? '真' : '偽') + ')' : '') + (m ? '   ⇒ 翻訳規則 ' + m.rule + (ev.cnt > 1 ? '（' + (m.idx + 1) + '/' + ev.cnt + ' 命令目）' : '') : '') };
+    const d = U.def(ev.def), a = sim.aI.cur(), m = a && a.meta;
+    return { level: 'c', id: d.id, title: d.title, body: ROLE_JA[ev.role] + (ev.role === 'cond' ? '  (' + condText(ev.node.c) + ' → ' + (sim.cI.test(ev.node.c) ? '真' : '偽') + ')' : ev.role === 'asg' ? '  (' + dstText(ev.node.dst) + ' ← ' + exprText(ev.node.expr) + ')' : '') + (m ? '   ⇒ 翻訳規則 ' + m.rule + (ev.cnt > 1 ? '（' + (m.idx + 1) + '/' + ev.cnt + ' 命令目）' : '') : '') };
   }
 }
 
 /* ------------------------------------------------------------------ */
 /*  アセンブリ パネル                                                   */
 /* ------------------------------------------------------------------ */
-const A_DEF = {}; Object.keys(CPU.OPC).forEach(k => A_DEF[k] = 'A-' + k);
+const A_DEF = {}; Object.keys(CPU.MN).forEach(k => A_DEF[k] = 'A-' + k);
 class AsmPanel {
   constructor(body, app) {
     this.app = app;
@@ -361,21 +362,27 @@ class AsmPanel {
     if (errs.length) this.ed.setDeco({ errLines: new Set(errs.map(e => e.line)) });
   }
   setLOD(l) { this.lod = l; this.side.hidden = l === 'overview'; this.ed.setMinimap(l === 'full'); this.update(); }
-  explain(it, R, C) {
+  explain(it, A) {
     if (!it) return '';
-    const r = CPU.REGN[it.r], q = CPU.REGN[it.s], v = R[it.r], w = R[it.s];
+    const R = A.R, C = A.C, r = CPU.REGN[it.r], q = CPU.REGN[it.s], v = R[it.r], w = R[it.s], M = 65535;
+    const to = () => it.targetText + ' (@' + it.target + ') へ';
     switch (it.op) {
-      case 'INC': return r + ' : ' + v + ' → ' + ((v + 1) & 255);
-      case 'DEC': return r + ' : ' + v + ' → ' + ((v - 1) & 255);
-      case 'ADD': return r + ' : ' + v + ' + ' + w + ' = ' + (v + w) + (v + w > 255 ? ' → ' + ((v + w) & 255) + '、C = 1' : '、C = 0');
-      case 'SUB': return r + ' : ' + v + ' − ' + w + ' = ' + ((v - w) & 255) + (v < w ? '（借り）C = 1' : '、C = 0');
+      case 'INC': return r + ' : ' + v + ' → ' + ((v + 1) & M);
+      case 'DEC': return r + ' : ' + v + ' → ' + ((v - 1) & M);
+      case 'ADD': return r + ' : ' + v + ' + ' + w + ' = ' + (v + w) + (v + w > M ? ' → ' + ((v + w) & M) + '、C = 1' : '、C = 0');
+      case 'SUB': return r + ' : ' + v + ' − ' + w + ' = ' + ((v - w) & M) + (v < w ? '（借り）C = 1' : '、C = 0');
       case 'MOV': return r + ' ← ' + q + ' = ' + w;
-      case 'SHR': return r + ' : ' + v + ' >> 1 = ' + (v >> 1) + '、C = ' + (v & 1);
-      case 'JZ': return r + ' = ' + v + (v === 0 ? ' = 0 → ' + it.targetText + ' (@' + it.target + ') へ' : ' ≠ 0 → 次の行');
-      case 'JNZ': return r + ' = ' + v + (v !== 0 ? ' ≠ 0 → ' + it.targetText + ' (@' + it.target + ') へ' : ' = 0 → 次の行');
-      case 'JC': return 'C = ' + C + (C ? ' → ' + it.targetText + ' へ' : ' → 次の行');
-      case 'JNC': return 'C = ' + C + (!C ? ' → ' + it.targetText + ' へ' : ' → 次の行');
-      case 'JMP': return it.targetText + ' (@' + it.target + ') へ';
+      case 'SHR': return r + ' : ' + v + ' >> 1 = ' + (v >>> 1) + '、C = ' + (v & 1);
+      case 'LDI': return r + ' ← ' + it.imm;
+      case 'LD': return r + ' ← RAM[' + q + ' = ' + (w & 63) + '] = ' + A.ram[w & 63];
+      case 'ST': return 'RAM[' + q + ' = ' + (w & 63) + '] ← ' + r + ' = ' + v;
+      case 'JZ': return r + ' = ' + v + (v === 0 ? ' = 0 → ' + to() : ' ≠ 0 → 次の行');
+      case 'JNZ': return r + ' = ' + v + (v !== 0 ? ' ≠ 0 → ' + to() : ' = 0 → 次の行');
+      case 'JC': return 'C = ' + C + (C ? ' → ' + to() : ' → 次の行');
+      case 'JNC': return 'C = ' + C + (!C ? ' → ' + to() : ' → 次の行');
+      case 'JMP': return to();
+      case 'CALL': return 'LR ← ' + (it.addr + 1) + '、' + to();
+      case 'RET': return 'LR = ' + A.LR + ' へ戻る';
       case 'HALT': return '停止';
     }
   }
@@ -383,52 +390,49 @@ class AsmPanel {
     const sim = this.app.sim, P = this.prog;
     if (!sim || !P || !P.ok) { this.bar.innerHTML = ''; this.side.innerHTML = ''; return; }
     const a = sim.aI, it = a.cur();
-    const deco = { curLine: it && !a.halted ? it.line : (it ? it.line : -1), marks: [] };
+    const deco = { curLine: it ? it.line : -1, marks: [] };
     if (this.lod !== 'overview') {
-      const inl = {}, heat = {};
-      const maxc = Math.max(1, ...a.count);
+      const inl = {}, heat = {}, maxc = Math.max(1, ...a.count);
       P.asm.instrs.forEach(x => {
         if (x.line < 0) return;
-        inl[x.line] = '<span class="inlay">@' + String(x.addr).padStart(2, '0') + '  ' + CPU.bin(P.words[x.addr], 16).replace(/^(....)(...)(...)/, '$1 $2 $3 ') + (this.lod === 'full' ? '  ×' + a.count[x.addr] : '') + '</span>';
+        inl[x.line] = '<span class="inlay">@' + String(x.addr).padStart(3, '0') + '  ' + U.fmtBits(P.words[x.addr]) + (this.lod === 'full' ? '  ×' + a.count[x.addr] : '') + '</span>';
         if (this.lod === 'full') heat[x.line] = a.count[x.addr] / maxc;
       });
       deco.inlays = inl; deco.heat = heat;
     }
     this.ed.setDeco(deco);
-    this.bar.innerHTML = '<span><b>' + P.words.length + '</b> / 32 語</span><span>ラベル <b>' + Object.keys(P.asm.labels).length + '</b></span>' +
+    this.bar.innerHTML = '<span><b>' + P.words.length + '</b> / 256 語</span><span>ラベル <b>' + Object.keys(P.asm.labels).length + '</b></span>' +
       (P.asm.implicitHalt && P.mode === 'asm' ? '<span>末尾に暗黙の HALT</span>' : '') +
-      '<span class="mono">' + CPU.REGN.map((r, i) => r + '=' + a.R[i]).join(' ') + '  C=' + a.C + '</span>';
+      '<span class="mono">' + CPU.REGN.map((r, i) => r + '=' + a.R[i]).join(' ') + '  C=' + a.C + ' LR=' + a.LR + '</span>';
     if (this.lod !== 'overview') {
-      const d = it && U.def(A_DEF[it.op]);
-      const m = it && it.meta;
+      const d = it && U.def(A_DEF[it.op]), m = it && it.meta, sig = it ? CPU.MN[it.op][1] : '';
       this.side.innerHTML =
-        '<h4>いまの命令 — ニーモニックの意味</h4><div class="box">' + (d ? '<span class="deflink" data-def="' + d.id + '">' + U.esc(d.title) + '</span><pre class="def">' + U.esc(d.body) + '</pre><div class="mono" style="margin-top:4px;color:var(--warn)">' + U.esc(a.halted ? '停止しました' : this.explain(it, a.R, a.C)) + '</div>' : '') + '</div>' +
+        '<h4>いまの命令 — ニーモニックの意味</h4><div class="box">' + (d ? '<span class="deflink" data-def="' + d.id + '">' + U.esc(d.title) + '</span><pre class="def">' + U.esc(d.body) + '</pre><div class="mono" style="margin-top:4px;color:var(--warn)">' + U.esc(a.halted ? '停止しました' : this.explain(it, a)) + '</div>' : '') + '</div>' +
         '<h4>アセンブル（→ 機械語）</h4><div class="box mono">' + (it ? '@' + it.addr + '  ' + U.fieldBits(P.words[it.addr]) + '  <span class="dim">0x' + U.hex(P.words[it.addr]) + '</span>' : '') + '</div>' +
-        (m ? '<h4>出どころ（C）</h4><div class="box"><span class="deflink" data-def="' + m.rule + '">' + U.esc(U.def(m.rule).title) + '</span> <span class="dim">· ' + m.role + '</span></div>' : '') +
+        (m ? '<h4>出どころ（C）</h4><div class="box"><span class="deflink" data-def="' + m.rule + '">' + U.esc(U.def(m.rule).title) + '</span> <span class="dim">· ' + m.role + (m.cnt > 1 ? ' · ' + (m.idx + 1) + '/' + m.cnt : '') + '</span></div>' : '') +
         '<h4>記号表</h4><div class="box"><div class="kv">' + Object.entries(P.asm.labels).map(([k, v]) => '<span>' + U.esc(k) + '</span><span>@' + v + '</span>').join('') + '</div></div>' +
-        '<h4>レジスタと C</h4><div class="box"><div class="regs-bin">' + CPU.REGN.map((r, i) => '<span class="' + (it && (CPU.ISA[CPU.OPC[it.op]].args.includes('r') && it.r === i || CPU.ISA[CPU.OPC[it.op]].args.includes('s') && it.s === i) ? 'on' : 'dim') + '">' + r + '</span><span>' + U.bits(a.R[i], 8) + '</span><span>' + a.R[i] + '</span>').join('') + '<span>C</span><span>' + U.bits(a.C, 1) + '</span><span>' + a.C + '</span></div></div>';
+        '<h4>レジスタ・C・LR</h4><div class="box"><div class="regs-bin">' + CPU.REGN.map((r, i) => '<span class="' + (it && ((sig.includes('r') && it.r === i) || (/[sm]/.test(sig) && it.s === i)) ? 'on' : 'dim') + '">' + r + '</span><span>' + U.bits(a.R[i], 16) + '</span><span>' + a.R[i] + '</span>').join('') +
+        '<span>C</span><span>' + U.bits(a.C, 1) + '</span><span>' + a.C + '</span><span>LR</span><span>' + U.bits(a.LR, 8) + '</span><span>' + a.LR + '</span></div></div>';
       this.side.querySelectorAll('[data-def]').forEach(e => e.onclick = () => this.app.openDefs(e.dataset.def));
     }
   }
   hover(off, line) {
     const P = this.prog; if (!P || !P.asm) return null;
-    const src = this.ed.text, ls = src.split('\n');
-    const L = ls[line] || '';
+    const src = this.ed.text;
     let s = off, e = off;
     while (s > 0 && /[\w.]/.test(src[s - 1])) s--;
     while (e < src.length && /[\w.]/.test(src[e])) e++;
     const w = src.slice(s, e);
     if (!w) return null;
-    const up = w.toUpperCase();
-    const sim = this.app.sim;
+    const up = w.toUpperCase(), sim = this.app.sim;
     if (A_DEF[up]) {
-      const d = U.def(A_DEF[up]);
-      const ad = P.asm.lineAddr[line];
-      return { level: 'asm', id: d.id, title: d.title, body: d.body + (ad >= 0 ? '\n\n→ 機械語 @' + ad + ' = ' + CPU.bin(P.words[ad], 16) + ' (' + U.def('M-' + CPU.bin(CPU.OPC[up], 4)).title + ')' : '') };
+      const d = U.def(A_DEF[up]), ad = P.asm.lineAddr[line];
+      return { level: 'asm', id: d.id, title: d.title, body: d.body + (ad >= 0 ? '\n\n→ 機械語 @' + ad + ' = ' + U.fmtBits(P.words[ad]) + ' (' + U.def('M-' + CPU.bin(CPU.OPC[up], 4)).title + ')' : '') };
     }
     if (w === '.reg') return U.defTip('A-REG');
+    if (w === '.ram') return U.defTip('A-RAM');
     if (P.asm.labels[w] !== undefined) return { level: 'asm', id: 'A-LABEL', title: w + ' = @' + P.asm.labels[w], body: U.def('A-LABEL').body };
-    if (/^[a-h]$/i.test(w) && sim) { const i = CPU.REGN.indexOf(w.toLowerCase()); return { level: 'asm', title: 'レジスタ ' + w, body: '8bit 汎用レジスタ（番号 ' + CPU.bin(i, 3) + '）', value: w + ' = ' + sim.aI.R[i] + ' = ' + CPU.bin(sim.aI.R[i], 8) + '₂' }; }
+    if (/^[a-h]$/i.test(w) && sim) { const i = CPU.REGN.indexOf(w.toLowerCase()); return { level: 'asm', title: 'レジスタ ' + w, body: '16bit 汎用レジスタ（番号 ' + CPU.bin(i, 3) + '）', value: w + ' = ' + sim.aI.R[i] + ' = ' + CPU.bin(sim.aI.R[i], 16) + '₂' }; }
     return null;
   }
   traceInfo() {
@@ -436,7 +440,7 @@ class AsmPanel {
     const it = sim.aI.cur();
     if (!it || sim.aI.halted) return { level: 'asm', title: '停止', body: '' };
     const d = U.def(A_DEF[it.op]);
-    return { level: 'asm', id: d.id, title: d.title, body: this.explain(it, sim.aI.R, sim.aI.C) };
+    return { level: 'asm', id: d.id, title: d.title, body: this.explain(it, sim.aI) };
   }
 }
 

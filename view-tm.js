@@ -6,9 +6,10 @@
 'use strict';
 const CPU = window.CPU5, U = window.U;
 const MONO = '"JetBrains Mono", Consolas, Menlo, monospace';
-const SYM = { '^': 'テープ左端', '*': 'PC の印（この直後の命令を実行中）', ':': '命令の区切り', ']': 'プログラムの終わり / レジスタ領域の始まり', '#': 'レジスタの区切り', 'T': '印 T: 操作するレジスタ（r, 書き込み先）', 'S': '印 S: 2 本目のレジスタ（s, 読み出し元）', 'B': '印 B: r と s が同じレジスタ', '!': 'フラグ C の区切り', '$': 'テープ右端の印', '_': '空白', '0': 'ビット 0', '1': 'ビット 1', 'x': '処理済みの 0（筆算の作業印）', 'y': '処理済みの 1（筆算の作業印）' };
-const SYMCOL = { '1': '#ffcf4d', '0': '#808893', '*': '#ff6b6b', 'x': '#5fd3c4', 'y': '#7fffd4', 'T': '#c792ea', 'S': '#f07178', 'B': '#ff9cf0' };
-const GCOLS = [['fetch', 'dec1', 'halt'], ['markT'], ['markS'], ['dec2'], ['inc', 'dec', 'shr', 'jz', 'jc'], ['addS'], ['addT'], ['flag', 'bpath', 'clean'], ['adv', 'jread'], ['jgol'], ['jcnt']];
+const SYM = { '^': 'テープ左端', '*': 'PC の印（この直後の命令を実行中）', '&': '戻り番地 LR の印（CALL の次の命令）', '%': 'PC と LR が同じ区切り', 'p': 'LDI の境目（元は 0）', 'q': 'LDI の境目（元は 1）', ':': '命令の区切り', ']': 'プログラムの終わり / レジスタ領域の始まり', '#': 'レジスタの区切り', 'T': '印 T: 操作するレジスタ（r, 書き込み先）', 'S': '印 S: 2 本目のレジスタ（s, 読み出し元）', 'B': '印 B: r と s が同じレジスタ', '!': 'フラグ C の区切り', '$': 'テープ右端の印', '_': '空白', '0': 'ビット 0', '1': 'ビット 1', 'x': '処理済みの 0（筆算の作業印）', 'y': '処理済みの 1（筆算の作業印）' };
+const SYMCOL = { '1': '#ffcf4d', '0': '#808893', '*': '#ff6b6b', '%': '#ff6b6b', '&': '#ff7edb', 'p': '#5fb3ff', 'q': '#5fb3ff', 'x': '#5fd3c4', 'y': '#7fffd4', 'T': '#c792ea', 'S': '#f07178', 'B': '#ff9cf0' };
+const GCOLS = [['fetch', 'dec1', 'halt', 'markT', 'markS'], ['mem'], ['dec2', 'inc', 'dec', 'shr', 'jz', 'jc', 'ldi'], ['addS', 'addT'], ['flag', 'bpath', 'clean', 'adv', 'call', 'ret'], ['jread'], ['jgol'], ['jcnt']];
+const GTITLES = ['取出・解読・印', 'LD/ST 番地', '解読2・INC…LDI', '筆算 S↔T', 'C・片付け・PC+1・CALL', '分岐先を読む', '左端へ', '数える'];
 
 class TMPanel {
   constructor(body, app) {
@@ -29,7 +30,7 @@ class TMPanel {
       t.addEventListener('mouseleave', () => U.hideTip(this));
     }
   }
-  load(prog) { this.prog = prog; this.M = CPU.TM.machine || CPU.buildTM(); if (!CPU.TM.machine) CPU.TM.machine = this.M; this.allBuilt = false; this.layoutGraph(); this.lastQ = null; }
+  load(prog) { this.loadN = (this.loadN || 0) + 1; this.prog = prog; this.M = CPU.TM.machine || CPU.buildTM(); if (!CPU.TM.machine) CPU.TM.machine = this.M; this.allBuilt = false; this.layoutGraph(); this.lastQ = null; }
   setLOD(l) {
     this.lod = l;
     this.lower.hidden = l === 'overview';
@@ -45,13 +46,27 @@ class TMPanel {
     if (i === 0) return { k: 'end' };
     if (i < tm.progEnd) { const ins = Math.floor((i - 1) / 17), f = (i - 1) % 17; return { k: 'ins', ins, f }; }
     if (i === tm.progEnd) return { k: 'pend' };
-    for (let r = 0; r < CPU.NREG; r++) { const s = tm.regStart[r]; if (i === s - 1) return { k: 'sep', r }; if (i >= s && i < s + 8) return { k: 'reg', r, bit: 7 - (i - s) }; }
+    const o = i - (tm.progEnd + 1), wd = Math.floor(o / 17), f = o % 17;
+    if (wd < CPU.NREG + CPU.RAMN) {
+      const ram = wd >= CPU.NREG;
+      if (f === 0) return { k: 'sep', w: wd, ram };
+      return { k: ram ? 'ram' : 'reg', w: wd, r: wd, a: wd - CPU.NREG, bit: 16 - f };
+    }
     if (i === tm.flagPos) return { k: 'flag' };
     return { k: 'other' };
   }
-  regVal(tm, r) { let v = 0; const s = tm.regStart[r]; for (let i = 0; i < 8; i++) { const c = tm.sym(s + i); v = v * 2 + (c === '1' || c === 'y' ? 1 : 0); } return v; }
+  wordName(w) { return w < CPU.NREG ? CPU.REGN[w] : 'RAM[' + (w - CPU.NREG) + ']'; }
+  regVal(tm, w) { let v = 0; const s = tm.wordStart[w]; for (let i = 0; i < 16; i++) { const c = tm.sym(s + i); v = v * 2 + (c === '1' || c === 'y' ? 1 : 0); } return v; }
+  setEnabled(on) { this.enabled = on; this.lastQ = null; this.logicKey = null; this.update(); }
   frame() {
     if (!this.app.sim || !this.prog || !this.prog.ok) return;
+    if (this.enabled === false) {
+      if (this.tapeCv.visible()) { const c = this.tapeCv.begin(false); c.fillStyle = '#16181b'; c.fillRect(0, 0, this.tapeCv.w, this.tapeCv.h); c.fillStyle = '#9aa3ad'; c.font = '13px ' + MONO; c.fillText('TM 層は省略中です。上の「TM」にチェックを入れると、最初から TM 込みで実行し直します。', 16, 30); c.fillText('残りの層（C・ASM・機械語・回路）は毎命令突き合わせています。', 16, 52); }
+      return;
+    }
+    const tm = this.app.sim.tm, key = [this.loadN, this.enabled, tm.steps, this.app.sim.instr, this.lod, this.tapeCv.w, this.tapeCv.h, Math.round(this.camX), this.graph.cam.x, this.graph.cam.y, this.graph.cam.s].join('|');
+    if (key === this.lastKey) return;
+    this.lastKey = key;
     if (this.tapeCv.visible()) this.drawTape();
     if (this.lod === 'full' && this.graph.visible()) this.drawGraph();
   }
@@ -73,17 +88,18 @@ class TMPanel {
     for (let k = 0; k * 17 + 1 < tm.progEnd; k++) {
       const s = 1 + k * 17, x = s * cw - this.camX;
       if (x > W || x + 17 * cw < 0) continue;
-      let w = 0; for (let j = 1; j <= 16; j++) w = w * 2 + (tm.sym(s + j) === '1' ? 1 : 0);
-      c.fillStyle = tm.sym(s) === '*' ? '#ffcf4d' : '#7d8590';
+      let w = 0; for (let j = 1; j <= 16; j++) { const q = tm.sym(s + j); w = w * 2 + (q === '1' || q === 'y' || q === 'q' ? 1 : 0); }
+      const sp = tm.sym(s);
+      c.fillStyle = sp === '*' || sp === '%' ? '#ffcf4d' : sp === '&' ? '#ff7edb' : '#7d8590';
       c.fillText('[' + k + '] ' + CPU.disasm(w), x + 3, y0 + ch + 15);
     }
-    CPU.REGN.forEach((r, k) => {
-      const s = tm.regStart[k], x = (s - 1) * cw - this.camX;
-      if (x > W || x + 9 * cw < 0) return;
-      const sep = tm.sym(s - 1);
-      c.fillStyle = sep === 'T' ? '#c792ea' : sep === 'S' ? '#f07178' : sep === 'B' ? '#ff9cf0' : '#9cdcfe';
-      c.fillText(r + ' = ' + this.regVal(tm, k) + (sep !== '#' ? '  (' + sep + ')' : ''), x + 3, y0 + ch + 15);
-    });
+    for (let k = 0; k < CPU.NREG + CPU.RAMN; k++) {
+      const s0 = tm.wordStart[k], x = (s0 - 1) * cw - this.camX;
+      if (x > W || x + 17 * cw < 0) continue;
+      const sep = tm.sym(s0 - 1);
+      c.fillStyle = sep === 'T' ? '#c792ea' : sep === 'S' ? '#f07178' : sep === 'B' ? '#ff9cf0' : k < CPU.NREG ? '#9cdcfe' : '#7fb8d9';
+      c.fillText(this.wordName(k) + ' = ' + this.regVal(tm, k) + (sep !== '#' ? '  (' + sep + ')' : ''), x + 3, y0 + ch + 15);
+    }
     { const x = (tm.flagPos - 1) * cw - this.camX; if (x < W && x > -2 * cw) { c.fillStyle = '#ff9e64'; c.fillText('C = ' + tm.flagC(), x + 3, y0 + ch + 15); } }
     const q = tm.q, inf = this.M.info[q], ph = inf ? inf.phase : 'halt';
     const hx = tm.head * cw - this.camX;
@@ -98,8 +114,9 @@ class TMPanel {
   drawCell(c, tm, i, x, y, cw, ch, small) {
     const s = tm.sym(i), rg = this.region(tm, i);
     let bg = '#1e2024';
-    if (rg.k === 'ins') bg = rg.f === 0 ? '#25272b' : rg.f <= 4 ? 'rgba(232,163,106,.13)' : rg.f <= 7 ? 'rgba(199,146,234,.13)' : rg.f <= 10 ? 'rgba(240,113,120,.11)' : 'rgba(95,211,196,.11)';
+    if (rg.k === 'ins') bg = rg.f === 0 ? '#25272b' : rg.f <= 4 ? 'rgba(232,163,106,.13)' : rg.f <= 7 ? 'rgba(199,146,234,.13)' : 'rgba(95,211,196,.09)';
     else if (rg.k === 'reg') bg = rg.r % 2 ? 'rgba(156,220,254,.07)' : 'rgba(156,220,254,.13)';
+    else if (rg.k === 'ram') bg = rg.a % 2 ? 'rgba(95,179,255,.04)' : 'rgba(95,179,255,.09)';
     else if (rg.k === 'flag') bg = 'rgba(255,158,100,.16)';
     c.fillStyle = bg; c.fillRect(x + 0.5, y + 0.5, cw - 1, ch - 1);
     if (s === 'T' || s === 'S' || s === 'B') { c.fillStyle = 'rgba(199,146,234,.25)'; c.fillRect(x, y, cw, ch); }
@@ -121,7 +138,7 @@ class TMPanel {
       if (i === tm.head) { const ph = this.M.info[tm.q] ? this.M.info[tm.q].phase : 'halt'; c.strokeStyle = U.PHCOLOR[ph]; c.lineWidth = 2.5; c.strokeRect(x + 1, y + 1, cw - 2, ch - 2); }
     }
     c.fillStyle = '#7d8590'; c.font = '11px ' + MONO;
-    c.fillText('テープ全体 ' + n + ' マス（命令 ' + this.prog.words.length + ' 個 × 17 マス + レジスタ 8 × 9 マス + C）   ヘッド ' + tm.head + '   状態 ' + tm.q, 10, 16);
+    c.fillText('テープ全体 ' + n + ' マス（命令 ' + this.prog.words.length + ' 個 × 17 + レジスタ 8 × 17 + RAM 64 × 17 + C）   ヘッド ' + tm.head + '   状態 ' + tm.q, 10, 16);
   }
   hoverTape(p) {
     const tm = this.app.sim && this.app.sim.tm, g = this.cellGeom; if (!tm || !g) return;
@@ -131,9 +148,9 @@ class TMPanel {
     if (i < 0 || i >= tm.tape.length) return U.hideTip(this);
     const rg = this.region(tm, i), s = tm.sym(i);
     let where = '';
-    if (rg.k === 'ins') where = '命令 [' + rg.ins + '] の ' + (rg.f === 0 ? '区切り' : rg.f <= 4 ? 'op bit' + (16 - rg.f) : rg.f <= 7 ? 'r bit' + (16 - rg.f) : rg.f <= 10 ? 's bit' + (16 - rg.f) : 'aaaaaa bit' + (16 - rg.f));
-    else if (rg.k === 'reg') where = 'レジスタ ' + CPU.REGN[rg.r] + ' の bit' + rg.bit + '（2^' + rg.bit + ' の位）';
-    else if (rg.k === 'sep') where = 'レジスタ ' + CPU.REGN[rg.r] + ' の直前の区切り';
+    if (rg.k === 'ins') where = '命令 [' + rg.ins + '] の ' + (rg.f === 0 ? '区切り' : rg.f <= 4 ? 'op bit' + (16 - rg.f) : rg.f <= 7 ? 'r bit' + (16 - rg.f) : 'bit' + (16 - rg.f) + '（s / 分岐先 / 定数）');
+    else if (rg.k === 'reg' || rg.k === 'ram') where = this.wordName(rg.w) + ' の bit' + rg.bit + '（2^' + rg.bit + ' の位）';
+    else if (rg.k === 'sep') where = this.wordName(rg.w) + ' の直前の区切り';
     else if (rg.k === 'flag') where = 'フラグ C';
     U.showTip(p.cx, p.cy, { level: 'tm', id: 'TM-TAPE', title: 'マス ' + i + ' : 「' + s + '」', body: SYM[s] + (where ? '\n' + where : '') + '\n\n' + U.def('TM-TAPE').body, value: i === tm.head ? 'ヘッドがここにある。次の遷移 δ(' + tm.q + ', ' + s + ')' : '' }, this);
   }
@@ -146,21 +163,20 @@ class TMPanel {
     M.states.forEach(q => cols[colOf[M.info[q].line]].push(q));
     const H = 760;
     cols.forEach((col, ci) => {
-      const n = col.length, sub = n > 48 ? 2 : 1, per = Math.ceil(n / sub);
-      col.forEach((q, k) => { const sc = Math.floor(k / per), r = k % per; pos[q] = { x: 40 + ci * 110 + sc * 34, y: 40 + (r + 0.5) * (H / per) }; });
+      const n = col.length, sub = Math.ceil(n / 64), per = Math.ceil(n / sub);
+      col.forEach((q, k) => { const sc = Math.floor(k / per), r = k % per; pos[q] = { x: 40 + ci * 150 + sc * 26, y: 40 + (r + 0.5) * (H / per) }; });
     });
     this.gpos = pos;
     const E = new Map();
     for (const r of M.rules) if (r.q !== r.q2) E.set(r.q + '>' + r.q2, [r.q, r.q2]);
     this.edges = [...E.values()];
-    this.graph.setWorld({ x: 0, y: 0, w: 40 + GCOLS.length * 110, h: 820 });
+    this.graph.setWorld({ x: 0, y: 0, w: 60 + GCOLS.length * 150, h: 820 });
   }
   drawGraph() {
     const cv = this.graph, c = cv.begin(true), M = this.M, P = this.gpos, tm = this.app.sim.tm;
     c.fillStyle = '#16181b'; c.fillRect(-4000, -4000, 9000, 9000);
     c.font = '600 10px ' + MONO; c.fillStyle = '#5d6470';
-    const titles = ['取出・解読1', 'T の印', 'S の印', '解読2', 'INC DEC SHR 判定', '筆算: S', '筆算: T', 'C・B・片付け', 'PC+1・分岐読', '左端へ', '数える'];
-    titles.forEach((t, i) => c.fillText(t, 20 + i * 110, 20));
+    GTITLES.forEach((t, i) => c.fillText(t, 20 + i * 150, 20));
     c.lineWidth = 0.5; c.strokeStyle = 'rgba(120,130,145,.18)';
     c.beginPath();
     for (const [a, b] of this.edges) { const p = P[a], q = P[b]; c.moveTo(p.x, p.y); c.lineTo(q.x, q.y); }
@@ -174,7 +190,7 @@ class TMPanel {
     }
     for (const q of M.states) {
       const p = P[q], ph = M.info[q].phase, on = q === tm.q;
-      c.beginPath(); c.arc(p.x, p.y, on ? 9 : 3.6, 0, 7);
+      c.beginPath(); c.arc(p.x, p.y, on ? 9 : 2.6, 0, 7);
       c.fillStyle = U.PHCOLOR[ph]; c.globalAlpha = on ? 1 : 0.75;
       if (on) { c.shadowColor = U.PHCOLOR[ph]; c.shadowBlur = 14; }
       c.fill(); c.shadowBlur = 0; c.globalAlpha = 1;
@@ -228,14 +244,29 @@ class TMPanel {
   buildAll() {
     if (this.allBuilt) return;
     const M = this.M;
-    this.allTab.innerHTML = '<table><thead><tr><th>#</th><th>q</th><th>読</th><th>q′</th><th>書</th><th>移</th><th>回数</th></tr></thead><tbody>' +
-      M.rules.map(r => '<tr data-r="' + r.id + '"><td class="faint">' + r.id + '</td><td><span class="ph-dot" style="background:' + U.PHCOLOR[M.info[r.q].phase] + '"></span>' + r.q + '</td><td>' + U.esc(r.s) + '</td><td>' + r.q2 + '</td><td>' + U.esc(r.w) + '</td><td>' + r.d + '</td><td class="cnt">0</td></tr>').join('') + '</tbody></table>';
-    this.allRows = [...this.allTab.querySelectorAll('tbody tr')];
-    this.allBuilt = true; this.lastHL = -1; this.lastCountT = 0;
+    this.allTab.innerHTML = '<div class="vt-head"><span>#</span><span>q</span><span>読</span><span>q′</span><span>書</span><span>移</span><span>回数</span></div><div class="vt-body"><div class="vt-pad"></div><div class="vt-rows"></div></div>';
+    this.vtBody = this.allTab.querySelector('.vt-body'); this.vtRows = this.allTab.querySelector('.vt-rows');
+    this.allTab.querySelector('.vt-pad').style.height = (M.rules.length * 17) + 'px';
+    this.vtBody.onscroll = () => this.renderVT(true);
+    this.allBuilt = true; this.lastCountT = 0;
+    this.vtBody.addEventListener('mousemove', e => { const tr = e.target.closest('[data-r]'); if (!tr) return U.hideTip(this); U.showTip(e.clientX, e.clientY, 'TM-' + tr.dataset.r, this); });
+    this.vtBody.addEventListener('mouseleave', () => U.hideTip(this));
+  }
+  renderVT(force) {
+    const M = this.M, tm = this.app.sim.tm, B = this.vtBody, rh = 17;
+    const a0 = Math.max(0, Math.floor(B.scrollTop / rh) - 4), a1 = Math.min(M.rules.length, a0 + Math.ceil(B.clientHeight / rh) + 8);
+    const last = tm.last ? tm.last.id : -1;
+    let h = '';
+    for (let i = a0; i < a1; i++) {
+      const r = M.rules[i];
+      h += '<div class="vt-row' + (i === last ? ' last' : '') + '" data-r="' + i + '" style="top:' + (i * rh) + 'px"><span class="faint">' + i + '</span><span><span class="ph-dot" style="background:' + U.PHCOLOR[M.info[r.q].phase] + '"></span>' + r.q + '</span><span>' + U.esc(r.s) + '</span><span>' + r.q2 + '</span><span>' + U.esc(r.w) + '</span><span>' + r.d + '</span><span class="cnt">' + tm.ruleCount[i] + '</span></div>';
+    }
+    this.vtRows.innerHTML = h;
   }
   update() {
     const sim = this.app.sim, P = this.prog;
     if (!sim || !P || !P.ok) { this.info.innerHTML = ''; return; }
+    if (this.enabled === false) { this.info.innerHTML = '<span class="dim">TM 省略中</span>'; return; }
     const tm = sim.tm, M = this.M, r = tm.last;
     const { inf, L } = this.why(tm);
     const ph = CPU.PHASE[inf.phase];
@@ -258,21 +289,19 @@ class TMPanel {
         hist.map((h, k) => { const x = M.rules[h.r]; return '<tr data-r="' + x.id + '" class="' + (k === 0 ? 'last' : '') + '"><td class="faint">' + h.step + '</td><td>δ(' + x.q + ', ' + U.esc(x.s) + ')</td><td>→ (' + x.q2 + ', ' + U.esc(x.w) + ', ' + x.d + ')</td><td class="note">' + U.esc(x.note) + '</td></tr>'; }).join('') + '</tbody></table>';
       this.lastQ = tm.q;
     }
-    if (this.lod === 'full' && this.allRows && r) {
-      if (this.lastHL >= 0) this.allRows[this.lastHL].classList.remove('last');
-      this.allRows[r.id].classList.add('last'); this.lastHL = r.id;
+    if (this.lod === 'full' && this.allBuilt && r) {
       const now = performance.now();
-      if (now - this.lastCountT > 400) {
+      if (now - this.lastCountT > 250) {
         this.lastCountT = now;
-        const T0 = this.allTab, rh = 17, a0 = Math.max(0, Math.floor(T0.scrollTop / rh) - 5), a1 = Math.min(this.allRows.length, a0 + Math.ceil(T0.clientHeight / rh) + 10);
-        for (let i = a0; i < a1; i++) { const t = String(tm.ruleCount[i]); const cell = this.allRows[i].lastChild; if (cell.textContent !== t) cell.textContent = t; }
-        const row = this.allRows[r.id], T = this.allTab;
-        if (row.offsetTop < T.scrollTop + 30 || row.offsetTop > T.scrollTop + T.clientHeight - 20) T.scrollTop = row.offsetTop - T.clientHeight / 2;
+        const B = this.vtBody, y = r.id * 17;
+        if (this.app.running || y < B.scrollTop || y > B.scrollTop + B.clientHeight - 20) B.scrollTop = y - B.clientHeight / 2;
+        this.renderVT();
       }
     }
   }
   traceInfo() {
     const sim = this.app.sim; if (!sim) return null;
+    if (!sim.useTM) return { level: 'tm', title: 'TM 省略中', body: '' };
     const tm = sim.tm, r = tm.last;
     const { inf, L } = this.why(tm);
     if (!r) { const nx = tm.rule(); return nx ? { level: 'tm', id: 'TM-' + nx.id, title: '次: δ(' + nx.q + ', ' + nx.s + ') = (' + nx.q2 + ', ' + nx.w + ', ' + nx.d + ')', body: nx.note } : null; }

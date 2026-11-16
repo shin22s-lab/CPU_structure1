@@ -8,16 +8,12 @@ const CPU = window.CPU5, U = window.U;
 const MONO = '"JetBrains Mono", Consolas, Menlo, monospace';
 const GAP = 24, BH = 30, DH = 46;
 const tw = s => { let w = 0; for (const ch of s) w += ch.charCodeAt(0) > 255 ? 12.5 : 7.4; return w; };
-const COL = { bg: '#17191c', box: '#20242a', edge: '#56606b', text: '#d4d4d4', act: '#ffcc00', pred: 'rgba(255,204,0,.45)', proc: '#569cd6', dec: '#c586c0', term: '#4ec9b0', loop: '#dcdcaa', brk: '#f78c6c' };
+const COL = { bg: '#17191c', box: '#20242a', edge: '#56606b', text: '#d4d4d4', act: '#ffcc00', pred: 'rgba(255,204,0,.45)', proc: '#569cd6', dec: '#c586c0', term: '#4ec9b0', loop: '#dcdcaa', brk: '#f78c6c', call: '#ff7edb' };
 
-function condText(c) {
-  const a = c.a && c.a.name, b = c.b && c.b.name;
-  return { true: '1', nz: a + ' ≠ 0', z: a + ' == 0', lt: a + ' < ' + b, gt: a + ' > ' + b, le: a + ' ≤ ' + b, ge: a + ' ≥ ' + b, eq: a + ' == ' + b, ne: a + ' ≠ ' + b }[c.k];
-}
+const condText = c => { const t = window.C_TXT.condText(c); return t.replace('!=', '≠').replace('>=', '≥').replace('<=', '≤'); };
 function exprText(n) {
-  const e = n.expr, v = o => o.t === 'num' ? o.v : o.v.name;
-  if (e.t !== 'bin') return n.dst.name + ' ← ' + v(e);
-  return n.dst.name + ' ← ' + v(e.a) + ' ' + ({ '+': '+', '-': '−', '>>': '>>', '<<': '<<' }[e.op]) + ' ' + v(e.b);
+  const T = window.C_TXT, e = n.expr;
+  return T.dstText(n.dst) + ' ← ' + (e.t === 'bin' ? T.opnd(e.a) + ' ' + ({ '-': '−', '*': '×', '/': '÷', '%': 'mod' }[e.op] || e.op) + ' ' + T.opnd(e.b) : T.opnd(e));
 }
 
 /* ---- 構造化フローチャートの配置 ---- */
@@ -29,8 +25,8 @@ function measure(n) {
       return n.m = { l: Math.max(...ch.map(m => m.l)), r: Math.max(...ch.map(m => m.r)), h: ch.reduce((a, m) => a + m.h, 0) + GAP * (ch.length - 1) };
     }
     case 'empty': return n.m = { l: 0, r: 0, h: 0, empty: true };
-    case 'asg': case 'brk': case 'ret': {
-      const label = n.k === 'asg' ? exprText(n) : n.k === 'brk' ? 'break（ループを抜ける）' : 'return（停止）';
+    case 'asg': case 'brk': case 'ret': case 'call': {
+      const label = n.k === 'asg' ? exprText(n) : n.k === 'brk' ? 'break（ループを抜ける）' : n.k === 'call' ? n.name + '()' : (n.inMain ? 'return（停止）' : 'return（戻る）');
       const w = Math.max(96, tw(label) + 26);
       return n.m = { l: w / 2, r: w / 2, h: BH, w, label };
     }
@@ -51,20 +47,32 @@ function measure(n) {
   return n.m = { l: 0, r: 0, h: 0, empty: true };
 }
 
+function buildCharts(ast) {
+  const fns = [ast].concat(Object.values(ast.funcs || {}).filter(f => f.k === 'func'));
+  const all = { boxes: [], edges: [], bounds: { x: 0, y: 0, w: 0, h: 0 } };
+  let ox = 0;
+  for (const f of fns) {
+    const fc = new FlowChart(f, ox);
+    all.boxes.push(...fc.boxes); all.edges.push(...fc.edges);
+    ox = fc.bounds.x + fc.bounds.w + 50; all.bounds.h = Math.max(all.bounds.h, fc.bounds.h);
+  }
+  all.bounds.w = ox;
+  return all;
+}
 class FlowChart {
-  constructor(ast) {
-    this.boxes = []; this.edges = []; this.key = new Map();
-    this.loops = [];
-    const B = measure(ast.body);
-    const cx = Math.max(B.l, 60) + 20;
-    this.box({ kind: 'term', x: cx, y: 10, w: 140, h: 30, label: '開始 main()' });
+  constructor(fn, ox) {
+    this.boxes = []; this.edges = []; this.loops = []; this.key = new Map();
+    ox = ox || 0;
+    const isMain = fn.k === 'main';
+    const B = measure(fn.body);
+    const cx = ox + Math.max(B.l, 80) + 20;
+    this.box({ kind: 'term', x: cx, y: 10, w: 150, h: 30, label: isMain ? '開始 main()' : '入口 ' + fn.name + '()' });
     let y = 40;
-    if (!B.empty) { this.edge([[cx, y], [cx, y + GAP]]); y = this.place(ast.body, cx, y + GAP); }
-    const endOpen = y !== null;
+    if (!B.empty) { this.edge([[cx, y], [cx, y + GAP]]); y = this.place(fn.body, cx, y + GAP); }
     const ey = (y === null ? this.lastY : y) + GAP;
-    if (endOpen) this.edge([[cx, y], [cx, ey]]);
-    this.box({ kind: 'term', x: cx, y: ey, w: 160, h: 30, label: '終了（HALT）', node: ast, role: 'halt' });
-    this.bounds = { x: 0, y: 0, w: cx + Math.max(B.r, 80) + 30, h: ey + 50 };
+    if (y !== null) this.edge([[cx, y], [cx, ey]]);
+    this.box({ kind: 'term', x: cx, y: ey, w: 160, h: 30, label: isMain ? '終了（HALT）' : '戻る（RET）', node: fn, role: isMain ? 'halt' : 'ret' });
+    this.bounds = { x: ox, y: 0, w: (cx - ox) + Math.max(B.r, 90) + 30, h: ey + 50 };
   }
   box(b) { this.boxes.push(b); if (b.node) this.key.set(b.node, Object.assign(this.key.get(b.node) || {}, { [b.role]: b })); return b; }
   edge(pts, opt) { const e = Object.assign({ pts }, opt || {}); this.edges.push(e); return e; }
@@ -88,7 +96,8 @@ class FlowChart {
         this.loops[this.loops.length - 1].brks.push(b);
         this.lastY = y + BH; return null;
       }
-      case 'ret': this.box({ kind: 'term', x: cx, y, w: m.w, h: BH, label: m.label, node: n, role: 'halt' }); this.lastY = y + BH; return null;
+      case 'ret': this.box({ kind: 'term', x: cx, y, w: m.w, h: BH, label: m.label, node: n, role: n.inMain ? 'halt' : 'ret' }); this.lastY = y + BH; return null;
+      case 'call': this.box({ kind: 'call', x: cx, y, w: m.w, h: BH, label: m.label, node: n, role: 'call' }); return y + BH;
       case 'while': {
         const top = y, mid = y + m.dh / 2, bottom = y + m.h, lane = cx + m.r - 10, left = cx - m.l + 10;
         this.box({ kind: m.inf ? 'loop' : 'dec', x: cx, y, w: m.dw, h: m.dh, label: m.label, node: n, role: 'cond' });
@@ -134,7 +143,7 @@ class CFG {
   constructor(prog, ox) {
     const ins = prog.asm.instrs, n = ins.length;
     const lead = new Set([0]);
-    ins.forEach((it, i) => { if (it.target != null) { lead.add(it.target); if (i + 1 < n) lead.add(i + 1); } if (it.op === 'HALT' && i + 1 < n) lead.add(i + 1); });
+    ins.forEach((it, i) => { if (it.target != null) { lead.add(it.target); if (i + 1 < n) lead.add(i + 1); } if ((it.op === 'HALT' || it.op === 'RET') && i + 1 < n) lead.add(i + 1); });
     const starts = [...lead].filter(x => x < n).sort((a, b) => a - b);
     this.blocks = starts.map((s, k) => ({ s, e: (starts[k + 1] || n) - 1 }));
     this.of = new Array(n);
@@ -148,9 +157,9 @@ class CFG {
     let lane = 0;
     this.blocks.forEach((b, k) => {
       const last = ins[b.e];
-      const fall = !(last.op === 'JMP' || last.op === 'HALT') && k + 1 < this.blocks.length;
+      const fall = !(last.op === 'JMP' || last.op === 'HALT' || last.op === 'RET') && k + 1 < this.blocks.length;
       if (fall) this.edges.push({ from: k, to: k + 1, kind: 'fall' });
-      if (last.target != null) this.edges.push({ from: k, to: this.of[last.target], kind: last.op === 'JMP' ? 'jmp' : 'br', lane: lane++, op: last.op });
+      if (last.target != null) this.edges.push({ from: k, to: this.of[last.target], kind: last.op === 'JMP' ? 'jmp' : last.op === 'CALL' ? 'call' : 'br', lane: lane++, op: last.op });
     });
     this.bounds = { x: ox, y: 0, w: wmax + 60 + lane * 12 + 30, h: y };
     this.prog = prog;
@@ -169,7 +178,7 @@ class FlowPanel {
   }
   load(prog) {
     this.prog = prog;
-    this.fc = prog.c ? new FlowChart(prog.c.ast) : null;
+    this.fc = prog.c ? buildCharts(prog.c.ast) : null;
     const ox = this.fc ? this.fc.bounds.w + 60 : 0;
     this.cfg = new CFG(prog, ox);
     this.applyWorld();
@@ -222,6 +231,7 @@ class FlowPanel {
       else if (b.kind === 'term' || b.kind === 'loop') U.rr(c, x, y, b.w, b.h, b.h / 2);
       else c.rect(x, y, b.w, b.h);
       c.fill(); c.stroke();
+      if (b.kind === 'call') { c.beginPath(); c.moveTo(x + 8, y); c.lineTo(x + 8, y + b.h); c.moveTo(x + b.w - 8, y); c.lineTo(x + b.w - 8, y + b.h); c.stroke(); }
       c.fillStyle = act ? '#fff' : COL.text; c.font = (act ? '700 ' : '') + '12px ' + MONO; c.textAlign = 'center';
       c.fillText(b.label, b.x, y + b.h / 2 + 4); c.textAlign = 'left';
       if (cnt && b.node && cnt.get(b.node) && cnt.get(b.node)[b.role] != null) {
@@ -239,7 +249,7 @@ class FlowPanel {
     for (const e of g.edges) {
       const a = g.blocks[e.from], b = g.blocks[e.to];
       const act = e.from === cur && pc === a.e;
-      c.strokeStyle = act ? COL.act : e.kind === 'fall' ? COL.edge : e.kind === 'jmp' ? '#6b7f99' : '#9a6fa0'; c.lineWidth = act ? 2.4 : 1.2;
+      c.strokeStyle = act ? COL.act : e.kind === 'fall' ? COL.edge : e.kind === 'jmp' ? '#6b7f99' : e.kind === 'call' ? '#ff7edb' : '#9a6fa0'; c.lineWidth = act ? 2.4 : 1.2;
       c.beginPath();
       if (e.kind === 'fall') { c.moveTo(a.x + 30, a.y + a.h); c.lineTo(a.x + 30, b.y); c.stroke(); arrow(c, [a.x + 30, a.y + a.h], [a.x + 30, b.y], c.strokeStyle); }
       else {
@@ -266,7 +276,7 @@ class FlowPanel {
     if (!this.prog) return;
     const inside = h => h && p.x >= h.x && p.x <= h.x + h.w && p.y >= h.y && p.y <= h.y + h.h;
     if (this.fc) for (const b of this.fc.boxes) if (inside(b.hit) && b.node) {
-      const def = { cond: b.node.k === 'while' ? 'C-WHILE' : 'C-IF', asg: 'C-ASG', brk: 'C-BREAK', halt: b.node.k === 'main' ? 'C-END' : 'C-RET' }[b.role];
+      const def = { cond: b.node.k === 'while' ? 'C-WHILE' : 'C-IF', asg: 'C-ASG', brk: 'C-BREAK', call: 'C-CALL', ret: b.node.k === 'func' ? 'C-FEND' : 'C-RET', halt: b.node.k === 'main' ? 'C-END' : 'C-RET' }[b.role];
       const asm = this.prog.asm.instrs.filter(it => it.meta && it.meta.node === b.node && it.meta.role === b.role).map(it => '@' + it.addr + ' ' + CPU.disasm(this.prog.words[it.addr]));
       const d = U.def(def);
       return U.showTip(p.cx, p.cy, { level: 'flow', id: def, title: b.label, body: d.title + ': ' + d.body + (asm.length ? '\n\n翻訳された命令:\n' + asm.join('\n') : '') }, this);
@@ -280,7 +290,7 @@ class FlowPanel {
     const ev = sim.cI ? sim.cI.cur : null;
     const blocks = this.cfg.blocks.length;
     this.bar.innerHTML = (P.c ? '<span>C の構文木 → 構造化フローチャート</span>' : '<span>アセンブリ → 基本ブロック ' + blocks + ' 個</span>') +
-      '<span class="mono">' + (ev ? ({ asg: '処理', cond: '判断', back: 'ループへ戻る', skip: '合流へ', brk: 'break', halt: '終了' }[ev.role]) : (sim.halted ? '停止' : '@' + sim.aI.pc)) + '</span>';
+      '<span class="mono">' + (ev ? ({ asg: '処理', cond: '判断', back: 'ループへ戻る', skip: '合流へ', brk: 'break', halt: '終了', call: '関数呼び出し', ret: '関数から戻る' }[ev.role]) : (sim.halted ? '停止' : '@' + sim.aI.pc)) + '</span>';
     if (this.lod === 'overview') return;
     let h = '';
     if (ev) {
@@ -291,7 +301,7 @@ class FlowPanel {
       if (ev.role === 'cond') h += '<div class="mono" style="color:var(--warn);margin-top:4px">→ ' + (sim.cI.test(n.c) ? '真' : '偽') + ' の矢印へ進む</div>';
       h += '</div><h4>この箱の機械語</h4><div class="box mono" style="font-size:12px">' + asm.map(it => '<div style="' + (cur && it.addr === cur.addr ? 'color:#fff;background:var(--hl-active)' : 'color:#aab2bc') + '">@' + it.addr + ' ' + U.esc(CPU.disasm(P.words[it.addr])) + '</div>').join('') + '</div>';
     }
-    h += '<h4>フローチャートの記号</h4><div class="box" style="font-size:12px;line-height:1.7"><span style="color:' + COL.term + '">⬭ 端子</span> 開始・終了<br><span style="color:' + COL.proc + '">▭ 処理</span> 代入・計算<br><span style="color:' + COL.dec + '">◇ 判断</span> 条件で分かれる（真 / 偽）<br><span style="color:' + COL.loop + '">⬭ 繰り返し</span> while (1)<br><span style="color:' + COL.brk + '">▭ break</span> ループの出口へ<br><span class="dim">×n = 通った回数</span></div>';
+    h += '<h4>フローチャートの記号</h4><div class="box" style="font-size:12px;line-height:1.7"><span style="color:' + COL.term + '">⬭ 端子</span> 開始・終了<br><span style="color:' + COL.proc + '">▭ 処理</span> 代入・計算<br><span style="color:' + COL.dec + '">◇ 判断</span> 条件で分かれる（真 / 偽）<br><span style="color:' + COL.loop + '">⬭ 繰り返し</span> while (1)<br><span style="color:' + COL.brk + '">▭ break</span> ループの出口へ<br><span style="color:' + COL.call + '">⊏⊐ 定義済み処理</span> 関数呼び出し（右に関数のフローチャート）<br><span class="dim">×n = 通った回数</span></div>';
     if (P.c) h += '<h4>C → フローチャートの対応</h4><div class="box dim" style="font-size:12px">while (c) S → 判断 c、真なら S を実行して判断へ戻る、偽なら下へ。<br>if (c) A else B → 判断 c、真なら A、偽なら B、下で合流。<br>break → 一番内側のループの出口（偽の矢印）へ合流。</div>';
     this.side.innerHTML = h;
   }
@@ -300,7 +310,7 @@ class FlowPanel {
     const ev = sim.cI ? sim.cI.cur : null;
     if (!ev) return { level: 'flow', title: sim.halted ? '終了' : '基本ブロック @' + this.cfg.blocks[this.cfg.of[sim.aI.pc]].s, body: '' };
     const n = ev.node;
-    const t = ev.role === 'cond' ? '◇ ' + condText(n.c) + ' ? → ' + (sim.cI.test(n.c) ? '真' : '偽') : ev.role === 'asg' ? '▭ ' + exprText(n) : ev.role === 'back' ? '↩ ループの先頭へ' : ev.role === 'halt' ? '⬭ 終了' : ev.role === 'brk' ? '▭ break' : '合流へ';
+    const t = ev.role === 'cond' ? '◇ ' + condText(n.c) + ' ? → ' + (sim.cI.test(n.c) ? '真' : '偽') : ev.role === 'asg' ? '▭ ' + exprText(n) : ev.role === 'back' ? '↩ ループの先頭へ' : ev.role === 'halt' ? '⬭ 終了' : ev.role === 'brk' ? '▭ break' : ev.role === 'call' ? '⊏⊐ ' + n.name + '()' : ev.role === 'ret' ? '⬭ 戻る' : '合流へ';
     return { level: 'flow', title: t, body: '' };
   }
 }
