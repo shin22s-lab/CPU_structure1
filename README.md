@@ -22,3 +22,9 @@
 | 1 / 2 / 3 | 俯瞰 / 詳細 / 全体 |
 
 テスト: `node test.js`（全サンプルとランダムなプログラム・掛け算割り算を同期実行し、毎命令の一致と結果を確認。`--tm-all` で全サンプル TM 込み）
+
+## ライセンス・クレジット
+
+- コード: [MIT License](LICENSE)（© 2026 shin2225）
+- このプロジェクトは AI（Claude）の支援を受けて作成しました。
+- フォント: [IBM Plex Sans JP](https://github.com/IBM/plex) / [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono)（いずれも SIL Open Font License 1.1、Google Fonts から読み込み・同梱なし）
