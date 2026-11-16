@@ -15,23 +15,35 @@ const COL = {
   op: '#e8a36a', rr: '#c792ea', ad: '#5fd3c4',
 };
 const MONO = '"JetBrains Mono", Consolas, Menlo, monospace';
+const BW = 1400, BH = 900;
 
 /* ------------------------------------------------------------------ */
 /*  回路図の自動配置                                                      */
 /* ------------------------------------------------------------------ */
 const GW = 34, COLW = 92, PORTW = 70, RH = 25;
 const num = (s, re) => { const m = s.match(re); return m ? m.slice(1).map(x => isNaN(+x) ? x : +x) : null; };
-const RI = r => 'abcd'.indexOf(r);
+const RI = r => 'abcdefgh'.indexOf(r);
 const HINTS = {
   alu: n => {
     let m;
-    if ((m = num(n, /^p(\d)$/))) return { col: 0, row: m[0] * 2 };
-    if ((m = num(n, /^g(\d)$/))) return { col: 0, row: m[0] * 2 + 1 };
-    if ((m = num(n, /^Y(\d)$/))) return { col: 1, row: m[0] * 2 };
-    if ((m = num(n, /^h(\d)$/))) return { col: 1, row: m[0] * 2 + 1 };
-    if ((m = num(n, /^c(\d)$/))) return { col: 2, row: (m[0] - 1) * 2 + 1.5 };
-    if (n === 'ONE') return { col: 0, row: 16.4 };
-    if (n === 'ZERO_C') return { col: 0, row: 17.4 };
+    const B = i => i * 4;
+    if ((m = num(n, /^nW(\d)$/))) return { col: 0, row: B(m[0]) };
+    if ((m = num(n, /^bA(\d)$/))) return { col: 1, row: B(m[0]) };
+    if ((m = num(n, /^bS(\d)$/))) return { col: 1, row: B(m[0]) + 1 };
+    if ((m = num(n, /^B(\d)$/))) return { col: 2, row: B(m[0]) + 0.5 };
+    if ((m = num(n, /^p(\d)$/))) return { col: 3, row: B(m[0]) };
+    if ((m = num(n, /^g(\d)$/))) return { col: 3, row: B(m[0]) + 1.2 };
+    if ((m = num(n, /^u(\d)$/))) return { col: 4, row: B(m[0]) };
+    if ((m = num(n, /^h(\d)$/))) return { col: 4, row: B(m[0]) + 1.2 };
+    if ((m = num(n, /^c(\d)$/))) return { col: 5, row: B(m[0] - 1) + 2.2 };
+    if ((m = num(n, /^ys(\d)$/))) return { col: 6, row: B(m[0]) };
+    if ((m = num(n, /^ym(\d)$/))) return { col: 6, row: B(m[0]) + 1 };
+    if ((m = num(n, /^yh(\d)$/))) return { col: 6, row: B(m[0]) + 2 };
+    if ((m = num(n, /^Y(\d)$/))) return { col: 7, row: B(m[0]) + 1 };
+    if (n === 'nonA') return { col: 4, row: 33 };
+    if (n === 'useS') return { col: 5, row: 33 };
+    if (n === 'ONE') return { col: 0, row: 33 };
+    if (n === 'ZERO_C') return { col: 0, row: 34 };
   },
   pcinc: n => { let m; if ((m = num(n, /^P(\d)$/))) return { col: 0, row: m[0] * 2 }; if ((m = num(n, /^k(\d)$/))) return { col: 1, row: m[0] * 2 - 0.5 }; },
   pcmux: n => {
@@ -43,21 +55,18 @@ const HINTS = {
     if ((m = num(n, /^hm(\d)$/))) return { col: 2, row: m[0] * 3 + 0.5 };
     if ((m = num(n, /^NPC(\d)$/))) return { col: 3, row: m[0] * 3 + 1 };
   },
-  rmux: n => {
-    let m;
-    if ((m = num(n, /^m([abcd])(\d)$/))) return { col: 0, row: m[1] * 4.5 + RI(m[0]) };
-    if ((m = num(n, /^X(\d)$/))) return { col: 1, row: m[0] * 4.5 + 1.5 };
-  },
+  rmux: n => { let m; if ((m = num(n, /^x([a-h])(\d)$/))) return { col: (m[1] % 2) * 2, row: Math.floor(m[1] / 2) * 9 + RI(m[0]) }; if ((m = num(n, /^X(\d)$/))) return { col: (m[0] % 2) * 2 + 1, row: Math.floor(m[0] / 2) * 9 + 3.5 }; },
+  smux: n => { let m; if ((m = num(n, /^w([a-h])(\d)$/))) return { col: (m[1] % 2) * 2, row: Math.floor(m[1] / 2) * 9 + RI(m[0]) }; if ((m = num(n, /^W(\d)$/))) return { col: (m[0] % 2) * 2 + 1, row: Math.floor(m[0] / 2) * 9 + 3.5 }; },
   regs: n => {
     let m;
-    const G = r => ({ cb: 1 + (RI(r) % 2) * 5, rb: Math.floor(RI(r) / 2) * 18 });
+    const G = r => ({ cb: 1 + (RI(r) % 4) * 5, rb: Math.floor(RI(r) / 4) * 18 });
     if (n === 'WE') return { col: 0, row: 0 };
-    if ((m = num(n, /^WE([abcd])$/))) { const g = G(m[0]); return { col: g.cb - 0.2, row: g.rb + 0.5 }; }
-    if ((m = num(n, /^nWE([abcd])$/))) { const g = G(m[0]); return { col: g.cb - 0.2, row: g.rb + 2 }; }
-    if ((m = num(n, /^wy([abcd])(\d)$/))) { const g = G(m[0]); return { col: g.cb + 1, row: g.rb + 2 * (7 - m[1]) }; }
-    if ((m = num(n, /^wk([abcd])(\d)$/))) { const g = G(m[0]); return { col: g.cb + 1, row: g.rb + 2 * (7 - m[1]) + 1 }; }
-    if ((m = num(n, /^D([abcd])(\d)$/))) { const g = G(m[0]); return { col: g.cb + 2, row: g.rb + 2 * (7 - m[1]) + 0.5 }; }
-    if ((m = num(n, /^R([abcd])(\d)$/))) { const g = G(m[0]); return { col: g.cb + 3, row: g.rb + 2 * (7 - m[1]) + 0.5 }; }
+    if ((m = num(n, /^WE([a-h])$/))) { const g = G(m[0]); return { col: g.cb - 0.2, row: g.rb + 0.5 }; }
+    if ((m = num(n, /^nWE([a-h])$/))) { const g = G(m[0]); return { col: g.cb - 0.2, row: g.rb + 2 }; }
+    if ((m = num(n, /^wy([a-h])(\d)$/))) { const g = G(m[0]); return { col: g.cb + 1, row: g.rb + 2 * (7 - m[1]) }; }
+    if ((m = num(n, /^wk([a-h])(\d)$/))) { const g = G(m[0]); return { col: g.cb + 1, row: g.rb + 2 * (7 - m[1]) + 1 }; }
+    if ((m = num(n, /^D([a-h])(\d)$/))) { const g = G(m[0]); return { col: g.cb + 2, row: g.rb + 2 * (7 - m[1]) + 0.5 }; }
+    if ((m = num(n, /^R([a-h])(\d)$/))) { const g = G(m[0]); return { col: g.cb + 3, row: g.rb + 2 * (7 - m[1]) + 0.5 }; }
   },
 };
 function gateSize(g) {
@@ -122,7 +131,7 @@ function layoutBlock(C, bid) {
   for (const id in pos) h = Math.max(h, pos[id].y + pos[id].h + 10);
   return { bid, gs, pos, ports, pIdx, internal, usedOut, w, h };
 }
-function romLayout() { return { bid: 'rom', w: 560, h: 520, rom: true }; }
+function romLayout() { return { bid: 'rom', w: 640, h: 900, rom: true }; }
 
 /* ------------------------------------------------------------------ */
 class CircuitPanel {
@@ -151,23 +160,27 @@ class CircuitPanel {
     this.N = this.C.byName;
     this.L = {};
     CPU.BLOCKS.forEach(b => this.L[b.id] = b.id === 'rom' ? romLayout() : layoutBlock(this.C, b.id));
-    // 全体配置: データの流れに沿って 4 列
-    const cols = [['pc', 'pcinc', 'pcmux', 'br'], ['rom', 'dec', 'rsel', 'zero'], ['rmux'], ['alu'], ['regs']];
-    let x = 0; this.full = {};
-    let H = 0;
-    for (const col of cols) {
-      let y = 0, cw = 0;
-      for (const b of col) { const l = this.L[b]; this.full[b] = { x, y: y + 34 }; y += l.h + 34 + 50; cw = Math.max(cw, l.w); }
-      x += cw + 70; H = Math.max(H, y);
+    // 全体配置: データの流れに沿って 2 段
+    const rows = [[['pc', 'pcinc', 'pcmux'], ['rom'], ['dec', 'rsel', 'ssel', 'zero', 'br'], ['rmux'], ['smux']], [['alu'], ['regs']]];
+    this.full = {};
+    let y0 = 0, W = 0;
+    for (const row of rows) {
+      let x = 0, rh = 0;
+      for (const col of row) {
+        let y = y0, cw = 0;
+        for (const b of col) { const l = this.L[b]; this.full[b] = { x, y: y + 34 }; y += l.h + 34 + 50; cw = Math.max(cw, l.w); }
+        x += cw + 70; rh = Math.max(rh, y - y0);
+      }
+      y0 += rh + 30; W = Math.max(W, x);
     }
-    this.fullBounds = { x: -20, y: -20, w: x, h: H + 20 };
+    this.fullBounds = { x: -20, y: -20, w: W, h: y0 };
   }
   load(prog) { this.prog = prog; this.ensure(); this.applyWorld(); }
   setLOD(l) { this.lod = l; this.bar.hidden = l !== 'detail'; this.applyWorld(); this.paintChips(); }
   paintChips() { [...this.chips.children].forEach(c => c.classList.toggle('on', c.dataset.b === this.block)); }
   applyWorld() {
     if (!this.C) return;
-    if (this.lod === 'overview') this.cv.setWorld({ x: 0, y: 0, w: 1200, h: 720 });
+    if (this.lod === 'overview') this.cv.setWorld({ x: 0, y: 0, w: BW, h: BH });
     else if (this.lod === 'detail') { const l = this.L[this.block]; this.cv.setWorld({ x: -10, y: -40, w: l.w + 20, h: l.h + 50 }); }
     else this.cv.setWorld(this.fullBounds);
   }
@@ -203,64 +216,69 @@ class CircuitPanel {
 
   /* ---------------- 基板（俯瞰） ---------------- */
   drawBoard(c) {
-    c.fillStyle = COL.board; c.fillRect(0, 0, 1200, 720);
+    c.fillStyle = COL.board; c.fillRect(0, 0, BW, BH);
     if (!this.pat) {
       const p = document.createElement('canvas'); p.width = p.height = 24; const pc = p.getContext('2d');
       pc.fillStyle = COL.board2; pc.beginPath(); pc.arc(12, 12, 1.6, 0, 7); pc.fill(); this.pat = c.createPattern(p, 'repeat');
     }
-    c.fillStyle = this.pat; c.fillRect(0, 0, 1200, 720);
-    c.strokeStyle = '#2b5a46'; c.lineWidth = 2; U.rr(c, 2, 2, 1196, 716, 10); c.stroke();
-    c.fillStyle = COL.silkDim; c.font = '600 11px ' + MONO; c.textAlign = 'right'; c.fillText('CPU⁵  REV.A  8bit 単一サイクル', 1188, 712); c.textAlign = 'left';
+    c.fillStyle = this.pat; c.fillRect(0, 0, BW, BH);
+    c.strokeStyle = '#2b5a46'; c.lineWidth = 2; U.rr(c, 2, 2, BW - 4, BH - 4, 10); c.stroke();
+    c.fillStyle = COL.silkDim; c.font = '600 11px ' + MONO; c.textAlign = 'right'; c.fillText('CPU⁵  REV.B  8bit 単一サイクル  レジスタ 8 本 / ROM 64 語', BW - 12, BH - 10); c.textAlign = 'left';
     this.hits = [];
     const B = (pts, nets, label, lp) => this.bus(c, pts, nets.map(n => this.N[n]), label, lp);
     const range = (p, a, b) => { const r = []; for (let i = a; i >= b; i--) r.push(p + i); return r; };
-    // バス
-    const PCn = range('PC', 4, 0);
-    B([[170, 140], [210, 140]], PCn);
-    B([[190, 140], [190, 495], [95, 495], [95, 520]], PCn, () => 'PC ' + CPU.bin(this.busv('PC', 5), 5), [190, 320]);
-    B([[190, 495], [320, 495], [320, 520]], PCn);
-    B([[590, 70], [640, 70]], ['I9', 'I8', 'I7'], () => 'op ' + CPU.bin(this.busv('I', 10) >> 7, 3), [598, 54]);
-    B([[590, 242], [640, 242]], ['I6', 'I5'], () => 'rr ' + CPU.bin((this.busv('I', 10) >> 5) & 3, 2), [598, 226]);
-    B([[480, 460], [480, 520]], range('I', 4, 0), () => 'aaaaa ' + CPU.bin(this.busv('I', 5), 5), [492, 494]);
-    const CT = ['isHALT', 'isINC', 'isDEC', 'isJZ', 'isJMP', 'isBAD'];
-    B([[830, 110], [856, 110], [856, 540], [830, 540]], CT);
-    B([[856, 150], [880, 150]], ['isINC', 'isDEC']);
-    B([[856, 470], [880, 470]], ['isDEC']);
-    B([[830, 242], [880, 242]], ['S0', 'S1', 'S2', 'S3']);
-    B([[868, 242], [868, 316], [880, 316]], ['S0', 'S1', 'S2', 'S3']);
-    CPU.REGN.forEach((r, k) => B([[915 + k * 70, 270], [915 + k * 70, 292]], range('R' + r, 7, 0)));
+    const PCn = range('PC', 5, 0);
+    B([[200, 138], [240, 138]], PCn);
+    B([[220, 138], [220, 680], [120, 680], [120, 700]], PCn, () => 'PC ' + CPU.bin(this.busv('PC', 6), 6), [226, 420]);
+    B([[220, 680], [330, 680], [330, 700]], PCn);
+    B([[700, 70], [750, 70]], range('I', 15, 12), () => 'op ' + CPU.bin(this.busv('I', 16) >> 12, 4), [704, 52]);
+    B([[700, 347], [750, 347]], range('I', 11, 9), () => 'r ' + CPU.bin((this.busv('I', 16) >> 9) & 7, 3), [704, 329]);
+    B([[700, 437], [750, 437]], range('I', 8, 6), () => 's ' + CPU.bin((this.busv('I', 16) >> 6) & 7, 3), [704, 419]);
+    B([[600, 660], [600, 700]], range('I', 5, 0), () => 'aaaaaa ' + CPU.bin(this.busv('I', 6), 6), [612, 672]);
+    const CT = ['isHALT', 'isINC', 'isDEC', 'isJZ', 'isJMP', 'isADD', 'isSUB', 'isMOV', 'isSHR', 'isJC', 'isJNC', 'isJNZ', 'isBAD'];
+    const WR = ['isINC', 'isDEC', 'isADD', 'isSUB', 'isMOV', 'isSHR'];
+    B([[970, 110], [990, 110], [990, 640], [970, 640]], CT);
+    B([[990, 150], [1020, 150]], WR);
+    B([[990, 600], [1020, 600]], WR);
+    B([[970, 347], [1006, 347], [1006, 250], [1020, 250]], range('SR', 0, 7).reverse());
+    B([[1006, 347], [1006, 416], [1020, 416]], range('SR', 0, 7).reverse());
+    B([[970, 437], [1000, 437], [1000, 452], [1295, 452], [1295, 436]], range('SS', 0, 7).reverse());
+    CPU.REGN.forEach((r, k) => B([[1045 + k * 44, 380], [1045 + k * 44, 396]], range('R' + r, 7, 0)));
     const Xn = range('X', 7, 0);
-    B([[1030, 340], [1030, 380]], Xn, () => 'X ' + CPU.bin(this.busv('X', 8), 8), [1046, 352]);
-    B([[1030, 360], [860, 360], [860, 415], [830, 415]], Xn);
-    B([[1180, 465], [1193, 465], [1193, 160], [1180, 160]], range('Y', 7, 0), () => 'Y ' + CPU.bin(this.busv('Y', 8), 8), [1092, 300]);
-    B([[735, 450], [735, 480]], ['Z']);
-    B([[640, 555], [590, 555]], ['BR', 'HOLD']);
-    B([[615, 560], [615, 706], [5, 706], [5, 238], [20, 238]], ['HOLD']);
-    B([[170, 565], [210, 565]], range('P', 4, 0));
-    B([[400, 640], [400, 672], [12, 672], [12, 150], [20, 150]], range('NPC', 4, 0), () => 'NPC ' + CPU.bin(this.busv('NPC', 5), 5), [40, 662]);
+    B([[1105, 436], [1105, 470]], Xn, () => 'X ' + CPU.bin(this.busv('X', 8), 8), [1112, 455]);
+    B([[1105, 462], [978, 462], [978, 524], [970, 524]], Xn);
+    B([[1295, 436], [1295, 470]], range('W', 7, 0), () => 'W ' + CPU.bin(this.busv('W', 8), 8), [1302, 455]);
+    B([[1380, 600], [1392, 600], [1392, 200], [1380, 200]], range('Y', 7, 0), () => 'Y ' + CPU.bin(this.busv('Y', 8), 8), [1300, 728]);
+    B([[860, 554], [860, 572]], ['Z']);
+    B([[1380, 680], [1388, 680], [1388, 740], [985, 740], [985, 700], [970, 700]], ['c8']);
+    B([[750, 620], [712, 620], [712, 760], [700, 760]], ['BR', 'HOLD']);
+    B([[750, 650], [728, 650], [728, 866], [18, 866], [18, 236], [40, 236]], ['HOLD']);
+    B([[750, 690], [738, 690], [738, 880], [10, 880], [10, 268], [40, 268]], ['C_D'], () => 'C_D ' + this.V('C_D'), [600, 872]);
+    B([[200, 745], [240, 745]], range('P', 5, 0));
+    B([[470, 820], [470, 848], [26, 848], [26, 150], [40, 150]], range('NPC', 5, 0), () => 'NPC ' + CPU.bin(this.busv('NPC', 6), 6), [60, 838]);
 
-    // チップ
-    this.drawClk(c, 20, 20, 150, 50);
-    this.drawPC(c, 20, 90, 150, 100);
-    this.drawHalted(c, 20, 210, 150, 56);
-    this.drawROM(c, 210, 20, 380, 440);
-    this.drawDec(c, 640, 20, 190, 160);
-    this.drawRsel(c, 640, 200, 190, 84);
-    this.drawRegs(c, 880, 20, 300, 250);
-    this.drawRmux(c, 880, 292, 300, 48);
-    this.drawALU(c, 880, 380, 300, 170);
-    this.drawZero(c, 640, 380, 190, 70);
-    this.drawBr(c, 640, 480, 190, 120);
-    this.drawPcinc(c, 20, 520, 150, 90);
-    this.drawPcmux(c, 210, 520, 380, 120);
-    // 凡例
+    this.drawClk(c, 40, 20, 160, 50);
+    this.drawPC(c, 40, 90, 160, 96);
+    this.drawFlags(c, 40, 206, 160, 86);
+    this.drawROM(c, 240, 20, 460, 640);
+    this.drawDec(c, 750, 20, 220, 270);
+    this.drawSel(c, 750, 310, 220, 74, 'rsel', 'r 選択', 'SR', 11, COL.rr);
+    this.drawSel(c, 750, 400, 220, 74, 'ssel', 's 選択', 'SS', 8, '#f07178');
+    this.drawZero(c, 750, 494, 220, 60);
+    this.drawBr(c, 750, 572, 220, 150);
+    this.drawRegs(c, 1020, 20, 360, 360);
+    this.drawMux(c, 1020, 396, 170, 40, 'rmux', 'X = R[r]');
+    this.drawMux(c, 1210, 396, 170, 40, 'smux', 'W = R[s]');
+    this.drawALU(c, 1020, 470, 360, 250);
+    this.drawPcinc(c, 40, 700, 160, 90);
+    this.drawPcmux(c, 240, 700, 460, 120);
     c.font = '11px ' + MONO; c.fillStyle = COL.silkDim;
-    c.fillText('銅箔の線 1 本 = 1 ビット。金色 = 1 / 暗い = 0。白く光る線 = いま確定した信号', 640, 640);
-    c.fillText('チップをクリックするとゲートレベルの回路図へ', 640, 658);
+    c.fillText('銅箔の線 1 本 = 1 ビット。金色 = 1 / 暗い = 0。白く光る線 = いま確定した信号', 760, 790);
+    c.fillText('チップをクリックするとゲートレベルの回路図へ', 760, 808);
     if (this.hot && this.hot.kind === 'chip') { c.strokeStyle = COL.hot; c.lineWidth = 2; const h = this.hot; U.rr(c, h.x - 3, h.y - 3, h.w + 6, h.h + 6, 6); c.stroke(); }
   }
   bus(c, pts, nets, label, lp) {
-    const n = nets.length, gap = n > 6 ? 2.6 : 3.4;
+    const n = nets.length, gap = n > 8 ? 2.1 : n > 6 ? 2.6 : 3.4;
     for (let i = 0; i < n; i++) {
       const o = (i - (n - 1) / 2) * gap;
       const v = this.dv(nets[i]), f = this.front(nets[i]);
@@ -275,7 +293,7 @@ class CircuitPanel {
         k ? c.lineTo(x, y) : c.moveTo(x, y);
       }
       c.strokeStyle = f ? COL.cuFront : v ? COL.cu1 : COL.cu0;
-      c.lineWidth = f ? 2.2 : v ? 1.7 : 1.3;
+      c.lineWidth = f ? 2.2 : v ? 1.6 : 1.2;
       if (v || f) { c.shadowColor = f ? '#fff' : 'rgba(255,207,77,.7)'; c.shadowBlur = f ? 8 : 4; }
       c.stroke(); c.shadowBlur = 0;
     }
@@ -293,12 +311,10 @@ class CircuitPanel {
     c.fillStyle = 'rgba(0,0,0,.35)'; U.rr(c, x + 3, y + 4, w, h, 5); c.fill();
     c.fillStyle = COL.chip; U.rr(c, x, y, w, h, 5); c.fill();
     c.strokeStyle = COL.chipEdge; c.lineWidth = 1.2; c.stroke();
-    // ピン
     c.fillStyle = COL.pin;
     for (let px = x + 10; px < x + w - 6; px += 12) { c.fillRect(px, y - 3, 4, 3); c.fillRect(px, y + h, 4, 3); }
     c.fillStyle = COL.silk; c.font = '700 11.5px ' + MONO; c.fillText(title, x + 8, y + 15);
-    if (sub) { c.fillStyle = COL.silkDim; c.font = '10px ' + MONO; c.fillText(sub, x + 8 + c.measureText(title).width * 1.06 + 14, y + 15); }
-    c.beginPath(); c.arc(x + w - 9, y + 9, 2.5, 0, 7); c.fillStyle = '#2d3832'; c.fill();
+    if (sub) { const tw = c.measureText(title).width; c.fillStyle = COL.silkDim; c.font = '10px ' + MONO; c.fillText(sub, x + 18 + tw, y + 15); }
   }
   led(c, x, y, on, ctl, r) {
     r = r || 4.5;
@@ -307,16 +323,16 @@ class CircuitPanel {
     if (on) { c.shadowColor = ctl ? COL.ctl1 : COL.led1; c.shadowBlur = 8; }
     c.fill(); c.shadowBlur = 0;
   }
-  bitsRow(c, x, y, prefix, n, cell, digits) {
-    for (let i = n - 1, k = 0; i >= 0; i--, k++) {
-      const v = this.V(prefix + i);
+  bitCells(c, x, y, vals, cell) {
+    vals.forEach((v, k) => {
       const cx = x + k * cell;
       c.fillStyle = v ? COL.led1 : COL.led0;
       if (v) { c.shadowColor = COL.led1; c.shadowBlur = 6; }
       c.fillRect(cx, y, cell - 3, cell - 3); c.shadowBlur = 0;
-      if (digits !== false) { c.fillStyle = v ? '#2a1d00' : '#6f8a7c'; c.font = '600 ' + Math.round(cell * 0.62) + 'px ' + MONO; c.textAlign = 'center'; c.fillText(v, cx + (cell - 3) / 2, y + cell * 0.66); c.textAlign = 'left'; }
-    }
+      c.fillStyle = v ? '#2a1d00' : '#6f8a7c'; c.font = '600 ' + Math.round(cell * 0.6) + 'px ' + MONO; c.textAlign = 'center'; c.fillText(v, cx + (cell - 3) / 2, y + cell * 0.65); c.textAlign = 'left';
+    });
   }
+  bitsRow(c, x, y, prefix, n, cell) { const v = []; for (let i = n - 1; i >= 0; i--) v.push(this.V(prefix + i)); this.bitCells(c, x, y, v, cell); }
   txt(c, s, x, y, col, size, bold) { c.fillStyle = col || COL.silk; c.font = (bold ? '700 ' : '') + (size || 11) + 'px ' + MONO; c.fillText(s, x, y); }
 
   drawClk(c, x, y, w, h) {
@@ -328,130 +344,130 @@ class CircuitPanel {
     this.led(c, x + w - 16, y + 34, this.clk, true, 6);
   }
   drawPC(c, x, y, w, h) {
-    this.chip(c, x, y, w, h, 'PC', 'pc', 'DFF×5');
-    this.bitsRow(c, x + 12, y + 28, 'PC', 5, 24);
-    const pc = this.busv('PC', 5);
-    this.txt(c, '= ' + pc, x + 12, y + 76, '#fff', 18, true);
-    this.txt(c, '番地', x + 70, y + 74, COL.silkDim, 10);
+    this.chip(c, x, y, w, h, 'PC', 'pc', 'DFF×6');
+    this.bitsRow(c, x + 10, y + 26, 'PC', 6, 23);
+    this.txt(c, '= ' + this.busv('PC', 6), x + 12, y + 76, '#fff', 18, true);
+    this.txt(c, '番地', x + 76, y + 74, COL.silkDim, 10);
   }
-  drawHalted(c, x, y, w, h) {
-    this.chip(c, x, y, w, h, 'HALTED', 'pc', 'DFF');
-    const v = this.V('HALTED');
-    this.led(c, x + 20, y + 36, v, false, 7);
-    this.txt(c, v ? '停止中' : '実行中', x + 36, y + 41, v ? '#ff8a80' : COL.silkDim, 12, true);
+  drawFlags(c, x, y, w, h) {
+    this.chip(c, x, y, w, h, 'フラグ', 'pc', 'DFF×2');
+    const hv = this.V('HALTED'), cv = this.V('CF');
+    this.led(c, x + 20, y + 38, hv, false, 6); this.txt(c, 'HALTED ' + (hv ? '停止中' : '実行中'), x + 34, y + 42, hv ? '#ff8a80' : COL.silkDim, 11.5, hv);
+    this.led(c, x + 20, y + 66, cv, false, 6); this.txt(c, 'C = ' + cv + '  桁上げ/借り', x + 34, y + 70, cv ? '#fff' : COL.silkDim, 11.5, cv);
   }
   drawROM(c, x, y, w, h) {
-    this.chip(c, x, y, w, h, 'ROM 32×10', 'rom', 'プログラム = 2 進数');
-    const P = this.prog, pc = this.busv('PC', 5);
-    const top = y + 40, rh = (h - 50) / 32, cell = 15.5, bx = x + 34;
-    // フィールドの色帯
-    const band = (c0, n, col) => { c.fillStyle = col; c.fillRect(bx + c0 * cell - 1, top - 14, n * cell, 32 * rh + 14); };
-    band(0, 3, 'rgba(232,163,106,.07)'); band(3, 2, 'rgba(199,146,234,.07)'); band(5, 5, 'rgba(95,211,196,.07)');
-    c.font = '9.5px ' + MONO;
-    c.fillStyle = COL.op; c.fillText('op', bx + 12, top - 4); c.fillStyle = COL.rr; c.fillText('rr', bx + 3 * cell + 6, top - 4); c.fillStyle = COL.ad; c.fillText('aaaaa', bx + 5 * cell + 20, top - 4);
+    this.chip(c, x, y, w, h, 'ROM 64×16', 'rom', 'プログラム = 2 進数');
+    const P = this.prog, pc = this.busv('PC', 6);
+    const top = y + 40, rh = (h - 50) / 64, cell = 14, bx = x + 28;
+    const band = (c0, n, col) => { c.fillStyle = col; c.fillRect(bx + c0 * cell - 1, top - 14, n * cell, 64 * rh + 14); };
+    band(0, 4, 'rgba(232,163,106,.07)'); band(4, 3, 'rgba(199,146,234,.07)'); band(7, 3, 'rgba(240,113,120,.07)'); band(10, 6, 'rgba(95,211,196,.07)');
+    c.font = '9px ' + MONO;
+    c.fillStyle = COL.op; c.fillText('op', bx + 16, top - 4); c.fillStyle = COL.rr; c.fillText('r', bx + 4 * cell + 16, top - 4); c.fillStyle = '#f07178'; c.fillText('s', bx + 7 * cell + 16, top - 4); c.fillStyle = COL.ad; c.fillText('aaaaaa', bx + 10 * cell + 18, top - 4);
     const ROMv = this.dep[this.N.I0] <= this.wave;
-    for (let a = 0; a < 32; a++) {
-      const yy = top + a * rh;
-      const w0 = a < P.words.length ? P.words[a] : 0, used = a < P.words.length;
-      const sel = a === pc;
+    for (let a = 0; a < 64; a++) {
+      const yy = top + a * rh, w0 = a < P.words.length ? P.words[a] : 0, used = a < P.words.length, sel = a === pc;
       if (sel) { c.fillStyle = ROMv ? 'rgba(255,207,77,.18)' : 'rgba(255,255,255,.06)'; c.fillRect(x + 4, yy - 1, w - 8, rh); }
-      c.font = '9.5px ' + MONO; c.fillStyle = sel ? '#fff' : used ? '#7fa392' : '#3d5a4c';
-      c.fillText(String(a).padStart(2, '0'), x + 10, yy + rh - 3);
-      for (let k = 0; k < 10; k++) {
-        const b = (w0 >> (9 - k)) & 1;
-        c.fillStyle = b ? (sel && ROMv ? COL.led1 : used ? '#b39239' : '#3b3520') : (used ? '#203a2e' : '#172a22');
-        if (b && sel && ROMv) { c.shadowColor = COL.led1; c.shadowBlur = 6; }
-        c.fillRect(bx + k * cell, yy + 1, cell - 3, rh - 3);
-        c.shadowBlur = 0;
+      if (used || sel) { c.font = '8px ' + MONO; c.fillStyle = sel ? '#fff' : '#7fa392'; c.fillText(String(a).padStart(2, '0'), x + 8, yy + rh - 1.5); }
+      for (let k = 0; k < 16; k++) {
+        const b = (w0 >> (15 - k)) & 1;
+        c.fillStyle = b ? (sel && ROMv ? COL.led1 : used ? '#b39239' : '#3b3520') : (used ? '#203a2e' : '#152620');
+        c.fillRect(bx + k * cell, yy + 0.5, cell - 2.5, rh - 1.5);
       }
-      if (used) { c.fillStyle = sel ? '#fff' : '#6f9784'; c.font = (sel ? '700 ' : '') + '10px ' + MONO; c.fillText(CPU.disasm(w0), bx + 10 * cell + 14, yy + rh - 3); }
+      if (used) { c.fillStyle = sel ? '#fff' : '#6f9784'; c.font = (sel ? '700 ' : '') + '9px ' + MONO; c.fillText(CPU.disasm(w0), bx + 16 * cell + 10, yy + rh - 1.5); }
     }
   }
   drawDec(c, x, y, w, h) {
     this.chip(c, x, y, w, h, '命令デコーダ', 'dec');
-    const op = (this.V('I9') << 2) | (this.V('I8') << 1) | this.V('I7');
-    this.txt(c, 'op = ' + CPU.bin(op, 3), x + 10, y + 36, COL.op, 12, true);
-    [['isHALT', 'HALT 000'], ['isINC', 'INC  001'], ['isDEC', 'DEC  010'], ['isJZ', 'JZ   011'], ['isJMP', 'JMP  100'], ['isBAD', '未定義']].forEach(([n, l], i) => {
-      const v = this.V(n); const yy = y + 56 + i * 17;
-      this.led(c, x + 18, yy - 4, v, true);
-      this.txt(c, l, x + 30, yy, v ? '#fff' : COL.silkDim, 11, v);
+    const op = (this.V('I15') << 3) | (this.V('I14') << 2) | (this.V('I13') << 1) | this.V('I12');
+    this.txt(c, 'op = ' + CPU.bin(op, 4), x + 10, y + 36, COL.op, 12, true);
+    const L = ['HALT', 'INC', 'DEC', 'JZ', 'JMP', 'ADD', 'SUB', 'MOV', 'SHR', 'JC', 'JNC', 'JNZ', 'BAD'];
+    L.forEach((n, i) => {
+      const v = this.V('is' + n), col = i < 7 ? 0 : 1, row = i < 7 ? i : i - 7;
+      const xx = x + 18 + col * 104, yy = y + 60 + row * 28;
+      this.led(c, xx, yy - 4, v, true);
+      this.txt(c, (n === 'BAD' ? '未定義' : n) + ' ' + (n === 'BAD' ? '11xx' : CPU.bin(i, 4)), xx + 12, yy, v ? '#fff' : COL.silkDim, 11, v);
     });
   }
-  drawRsel(c, x, y, w, h) {
-    this.chip(c, x, y, w, h, 'レジスタ選択', 'rsel');
-    const rr = (this.V('I6') << 1) | this.V('I5');
-    this.txt(c, 'rr = ' + CPU.bin(rr, 2), x + 10, y + 36, COL.rr, 12, true);
-    CPU.REGN.forEach((r, k) => { const v = this.V('S' + k); this.led(c, x + 18 + k * 44, y + 58, v, true); this.txt(c, 'S' + k + ' ' + r, x + 26 + k * 44, y + 62, v ? '#fff' : COL.silkDim, 10); });
+  drawSel(c, x, y, w, h, blk, title, pre, hi, col) {
+    this.chip(c, x, y, w, h, title, blk);
+    const v = (this.V('I' + hi) << 2) | (this.V('I' + (hi - 1)) << 1) | this.V('I' + (hi - 2));
+    this.txt(c, CPU.bin(v, 3), x + 130, y + 15, col, 12, true);
+    CPU.REGN.forEach((r, k) => { const on = this.V(pre + k); this.led(c, x + 18 + k * 25, y + 40, on, true); this.txt(c, r, x + 15 + k * 25, y + 62, on ? '#fff' : COL.silkDim, 11, on); });
   }
   drawRegs(c, x, y, w, h) {
-    this.chip(c, x, y, w, h, 'レジスタファイル', 'regs', '4×8bit DFF');
+    this.chip(c, x, y, w, h, 'レジスタファイル', 'regs', '8×8bit DFF');
     CPU.REGN.forEach((r, k) => {
-      const yy = y + 34 + k * 52;
-      const sel = this.V('S' + k), we = this.V('WE' + r);
-      if (sel) { c.fillStyle = 'rgba(78,201,176,.12)'; c.fillRect(x + 4, yy - 4, w - 8, 46); }
-      this.txt(c, r, x + 12, yy + 20, sel ? '#fff' : COL.silk, 16, true);
-      this.bitsRow(c, x + 34, yy + 4, 'R' + r, 8, 22);
-      const v = this.busv('R' + r, 8);
-      this.txt(c, String(v).padStart(3), x + 218, yy + 20, '#fff', 15, true);
-      if (we) { this.txt(c, 'WE', x + 260, yy + 18, this.clk ? '#fff' : COL.ctl1, 11, true); }
-      this.txt(c, 'S' + k + (we ? ' · 書込み' : ''), x + 34, yy + 40, COL.silkDim, 9);
+      const yy = y + 28 + k * 41;
+      const sr = this.V('SR' + k), ss = this.V('SS' + k), we = this.V('WE' + r);
+      if (sr || ss) { c.fillStyle = sr ? 'rgba(199,146,234,.13)' : 'rgba(240,113,120,.10)'; c.fillRect(x + 4, yy - 3, w - 8, 37); }
+      this.txt(c, r, x + 12, yy + 18, sr || ss ? '#fff' : COL.silk, 15, true);
+      this.bitsRow(c, x + 32, yy + 4, 'R' + r, 8, 21);
+      this.txt(c, String(this.busv('R' + r, 8)).padStart(3), x + 210, yy + 19, '#fff', 15, true);
+      if (sr) this.txt(c, 'r', x + 258, yy + 18, COL.rr, 12, true);
+      if (ss) this.txt(c, 's', x + 272, yy + 18, '#f07178', 12, true);
+      if (we) this.txt(c, 'WE 書込', x + 290, yy + 18, this.clk ? '#fff' : COL.ctl1, 11, true);
     });
   }
-  drawRmux(c, x, y, w, h) {
-    this.hits.push({ kind: 'chip', x, y, w, h, block: 'rmux', title: '読み出し MUX' });
-    c.fillStyle = COL.chip; c.beginPath(); c.moveTo(x, y); c.lineTo(x + w, y); c.lineTo(x + w - 40, y + h); c.lineTo(x + 40, y + h); c.closePath(); c.fill();
+  drawMux(c, x, y, w, h, blk, label) {
+    this.hits.push({ kind: 'chip', x, y, w, h, block: blk, title: label });
+    c.fillStyle = COL.chip; c.beginPath(); c.moveTo(x, y); c.lineTo(x + w, y); c.lineTo(x + w - 30, y + h); c.lineTo(x + 30, y + h); c.closePath(); c.fill();
     c.strokeStyle = COL.chipEdge; c.stroke();
-    this.txt(c, '読み出し MUX   X = R[rr]', x + 52, y + 28, COL.silk, 11.5, true);
+    this.txt(c, '読出 ' + label, x + 34, y + 25, COL.silk, 11, true);
   }
   drawALU(c, x, y, w, h) {
-    const inc = this.V('isINC'), dec = this.V('isDEC');
-    this.chip(c, x, y, w, h, 'ALU', 'alu', '8bit 加算器 · リプルキャリー');
-    const bx = x + 62, cell = 22;
-    // 桁上げ
-    this.txt(c, '桁上げ c', x + 8, y + 40, COL.silkDim, 9.5);
-    for (let i = 8, k = 0; i >= 1; i--, k++) { const v = this.V('c' + i); this.txt(c, String(v), bx + k * cell + 5 + 11, y + 40, v ? COL.led1 : '#4e6b5d', 10, v); }
-    this.txt(c, 'X', x + 40, y + 62, COL.silk, 13, true); this.bitsRow(c, bx, y + 47, 'X', 8, cell);
-    c.font = '700 13px ' + MONO; c.fillStyle = COL.silk; c.fillText(dec ? '+' : '+', x + 22, y + 88);
-    this.txt(c, 'B', x + 40, y + 88, COL.silk, 13, true);
-    for (let i = 7, k = 0; i >= 0; i--, k++) { const v = i === 0 ? 1 : dec; c.fillStyle = v ? COL.led1 : COL.led0; c.fillRect(bx + k * cell, y + 73, cell - 3, cell - 3); c.fillStyle = v ? '#2a1d00' : '#6f8a7c'; c.font = '600 13px ' + MONO; c.textAlign = 'center'; c.fillText(v, bx + k * cell + 9.5, y + 87); c.textAlign = 'left'; }
-    c.strokeStyle = COL.silkDim; c.beginPath(); c.moveTo(bx - 4, y + 100); c.lineTo(bx + 8 * cell, y + 100); c.stroke();
-    this.txt(c, 'Y', x + 40, y + 122, COL.silk, 13, true); this.bitsRow(c, bx, y + 107, 'Y', 8, cell);
-    this.txt(c, '= ' + this.busv('Y', 8), bx + 8 * cell + 6, y + 122, '#fff', 13, true);
-    this.txt(c, dec ? 'B = 11111111 (−1)  DEC' : inc ? 'B = 00000001 (+1)  INC' : 'B = 00000001（結果は書き込まれない）', x + 10, y + 152, inc || dec ? COL.ctl1 : COL.silkDim, 10.5, inc || dec);
+    const ops = ['INC', 'DEC', 'ADD', 'SUB', 'MOV', 'SHR'].filter(n => this.V('is' + n));
+    this.chip(c, x, y, w, h, 'ALU', 'alu', '8bit 加算器 + MOV/SHR 選択');
+    const bx = x + 64, cell = 22;
+    this.txt(c, '桁上げ', x + 10, y + 38, COL.silkDim, 9.5);
+    for (let i = 8, k = 0; i >= 1; i--, k++) { const v = this.V('c' + i); this.txt(c, String(v), bx + k * cell - 4, y + 38, v ? COL.led1 : '#4e6b5d', 10, v); }
+    this.txt(c, 'cin ' + this.V('isSUB'), bx + 8 * cell + 2, y + 38, COL.silkDim, 9.5);
+    this.txt(c, 'X', x + 40, y + 60, COL.silk, 13, true); this.bitsRow(c, bx, y + 45, 'X', 8, cell);
+    this.txt(c, '+', x + 22, y + 84, COL.silk, 13, true); this.txt(c, 'B', x + 40, y + 84, COL.silk, 13, true); this.bitsRow(c, bx, y + 69, 'B', 8, cell);
+    c.strokeStyle = COL.silkDim; c.beginPath(); c.moveTo(bx - 4, y + 96); c.lineTo(bx + 8 * cell, y + 96); c.stroke();
+    this.txt(c, 'Σ', x + 40, y + 116, COL.silk, 13, true); this.bitsRow(c, bx, y + 101, 'u', 8, cell);
+    this.txt(c, 'c8 = ' + this.V('c8'), bx + 8 * cell + 6, y + 116, this.V('c8') ? COL.led1 : COL.silkDim, 11);
+    this.txt(c, 'Y', x + 40, y + 150, COL.silk, 13, true); this.bitsRow(c, bx, y + 135, 'Y', 8, cell);
+    this.txt(c, '= ' + this.busv('Y', 8), bx + 8 * cell + 6, y + 150, '#fff', 13, true);
+    const mode = this.V('isMOV') ? 'Y ← W（MOV）' : this.V('isSHR') ? 'Y ← X >> 1（SHR）' : 'Y ← Σ';
+    const bm = this.V('isADD') ? 'B = W（ADD）' : this.V('isSUB') ? 'B = ¬W, cin = 1（SUB: X − W）' : this.V('isDEC') ? 'B = 11111111（DEC: −1）' : this.V('isINC') ? 'B = 00000001（INC: +1）' : 'B は使わない';
+    this.txt(c, bm, x + 10, y + 184, ops.length ? COL.ctl1 : COL.silkDim, 11, !!ops.length);
+    this.txt(c, mode + (ops.length ? '' : '（結果は書き込まれない）'), x + 10, y + 204, ops.length ? COL.ctl1 : COL.silkDim, 11, !!ops.length);
+    this.txt(c, '→ フラグ C_D = ' + this.V('C_D'), x + 10, y + 228, COL.silkDim, 10.5);
   }
   drawZero(c, x, y, w, h) {
     this.chip(c, x, y, w, h, 'ゼロ検出', 'zero', 'NOR8');
     const z = this.V('Z');
-    this.led(c, x + 20, y + 44, z, true, 7);
-    this.txt(c, 'Z = ' + z + (z ? '  (X = 0)' : '  (X ≠ 0)'), x + 34, y + 49, z ? '#fff' : COL.silkDim, 12, z);
+    this.led(c, x + 20, y + 40, z, true, 7);
+    this.txt(c, 'Z = ' + z + (z ? '  (X = 0)' : '  (X ≠ 0)'), x + 34, y + 45, z ? '#fff' : COL.silkDim, 12, z);
   }
   drawBr(c, x, y, w, h) {
-    this.chip(c, x, y, w, h, '分岐制御', 'br');
-    [['JZZ', 'JZZ = JZ·Z'], ['BR', 'BR = JMP+JZZ'], ['HOLD', 'HOLD = HALT']].forEach(([n, l], i) => {
-      const v = this.V(n); const yy = y + 42 + i * 24;
-      this.led(c, x + 18, yy - 4, v, true, 5.5);
-      this.txt(c, l, x + 32, yy, v ? '#fff' : COL.silkDim, 11.5, v);
+    this.chip(c, x, y, w, h, '分岐・フラグ制御', 'br');
+    [['tJZ', 'JZ·Z'], ['tJNZ', 'JNZ·¬Z'], ['tJC', 'JC·C'], ['tJNC', 'JNC·¬C'], ['BR', 'BR 分岐する'], ['HOLD', 'HOLD 止める'], ['C_D', 'C の次の値']].forEach(([n, l], i) => {
+      const v = this.V(n), col = i < 4 ? 0 : 1, row = i < 4 ? i : i - 4;
+      const xx = x + 16 + col * 100, yy = y + 40 + row * 26;
+      this.led(c, xx, yy - 4, v, true, 5);
+      this.txt(c, l, xx + 10, yy, v ? '#fff' : COL.silkDim, 10.5, v);
     });
   }
   drawPcinc(c, x, y, w, h) {
-    this.chip(c, x, y, w, h, 'PC+1', 'pcinc', '半加算器×5');
-    this.bitsRow(c, x + 12, y + 32, 'P', 5, 24);
-    this.txt(c, '= ' + this.busv('P', 5), x + 12, y + 78, '#fff', 14, true);
+    this.chip(c, x, y, w, h, 'PC+1', 'pcinc', '半加算器×6');
+    this.bitsRow(c, x + 10, y + 30, 'P', 6, 23);
+    this.txt(c, '= ' + this.busv('P', 6), x + 12, y + 78, '#fff', 14, true);
   }
   drawPcmux(c, x, y, w, h) {
-    this.chip(c, x, y, w, h, '次 PC 選択', 'pcmux', 'NPC = HOLD ? PC : BR ? aaaaa : PC+1');
+    this.chip(c, x, y, w, h, '次 PC 選択', 'pcmux', 'NPC = HOLD ? PC : BR ? aaaaaa : PC+1');
     const br = this.V('BR'), hold = this.V('HOLD');
-    const opts = [['PC+1', this.busv('P', 5), !br && !hold], ['aaaaa', this.busv('I', 5), br && !hold], ['PC', this.busv('PC', 5), hold]];
+    const opts = [['PC+1', this.busv('P', 6), !br && !hold], ['aaaaaa', this.busv('I', 6), br && !hold], ['PC', this.busv('PC', 6), hold]];
     opts.forEach(([l, v, on], i) => {
-      const xx = x + 12 + i * 120, yy = y + 30;
-      c.fillStyle = on ? 'rgba(255,207,77,.16)' : 'rgba(255,255,255,.03)'; U.rr(c, xx, yy, 110, 44, 4); c.fill();
+      const xx = x + 12 + i * 148, yy = y + 30;
+      c.fillStyle = on ? 'rgba(255,207,77,.16)' : 'rgba(255,255,255,.03)'; U.rr(c, xx, yy, 138, 44, 4); c.fill();
       if (on) { c.strokeStyle = COL.led1; c.lineWidth = 1.2; c.stroke(); }
       this.txt(c, l, xx + 8, yy + 16, on ? '#fff' : COL.silkDim, 11, on);
-      this.txt(c, CPU.bin(v, 5) + ' = ' + v, xx + 8, yy + 34, on ? COL.led1 : COL.silkDim, 12, on);
+      this.txt(c, CPU.bin(v, 6) + ' = ' + v, xx + 8, yy + 34, on ? COL.led1 : COL.silkDim, 12, on);
     });
     this.txt(c, 'NPC', x + 12, y + 102, COL.silk, 11, true);
-    this.bitsRow(c, x + 50, y + 88, 'NPC', 5, 19);
-    this.txt(c, '→ 次のクロックで PC へ', x + 160, y + 102, this.clk ? '#fff' : COL.silkDim, 10.5);
+    this.bitsRow(c, x + 48, y + 88, 'NPC', 6, 19);
+    this.txt(c, '→ 次のクロックで PC へ', x + 180, y + 102, this.clk ? '#fff' : COL.silkDim, 10.5);
   }
 
   /* ---------------- 回路図（詳細・全体） ---------------- */
@@ -471,9 +487,10 @@ class CircuitPanel {
     }
     if (L.rom) return this.drawRomSch(c, ox, oy);
     const C = this.C, hotNet = this.hot && this.hot.net;
+    const small = this.cv.cam.s < 0.42;   // 縮小表示では文字を省く
     c.save(); c.translate(ox, oy);
-    // 配線
-    c.lineJoin = 'round';
+    // 配線（色ごとにまとめて 1 回で描く）
+    const P0 = new Path2D(), P1 = new Path2D(), PF = new Path2D(), PH = new Path2D();
     for (const g of L.gs) {
       const P = L.pos[g.id];
       g.ins.forEach((n, k) => {
@@ -482,39 +499,68 @@ class CircuitPanel {
         if (L.internal(n)) { const d = L.pos[C.nets[n].driver]; sx = d.x + d.w + (this.bubble(C.gates[C.nets[n].driver]) ? 5 : 0); sy = d.y + d.h / 2; }
         else { sx = PORTW; sy = L.ports[L.pIdx[n]].y; }
         const xm = tx - 10 - k * 3;
-        const v = this.dv(n), f = this.front(n), h = hotNet === n;
-        c.strokeStyle = h ? COL.hot : f ? '#fff' : v ? COL.wire1 : COL.wire0;
-        c.lineWidth = h ? 2.4 : f ? 2 : v ? 1.5 : 1.1;
-        c.beginPath(); c.moveTo(sx, sy);
-        if (sx + 6 <= xm) { c.lineTo(xm, sy); c.lineTo(xm, ty); }
-        else { const cy = P.y - 5 - k * 2; c.lineTo(sx + 6, sy); c.lineTo(sx + 6, cy); c.lineTo(xm, cy); c.lineTo(xm, ty); }
-        c.lineTo(tx, ty); c.stroke();
+        const path = hotNet === n ? PH : this.front(n) ? PF : this.dv(n) ? P1 : P0;
+        path.moveTo(sx, sy);
+        if (sx + 6 <= xm) { path.lineTo(xm, sy); path.lineTo(xm, ty); }
+        else { const cy = P.y - 5 - k * 2; path.lineTo(sx + 6, sy); path.lineTo(sx + 6, cy); path.lineTo(xm, cy); path.lineTo(xm, ty); }
+        path.lineTo(tx, ty);
       });
     }
+    c.lineJoin = 'round';
+    c.strokeStyle = COL.wire0; c.lineWidth = 1.1; c.stroke(P0);
+    c.strokeStyle = COL.wire1; c.lineWidth = 1.5; c.stroke(P1);
+    c.strokeStyle = '#fff'; c.lineWidth = 2; c.stroke(PF);
+    c.strokeStyle = COL.hot; c.lineWidth = 2.4; c.stroke(PH);
     // 入力ポート（ネットラベル）
-    c.font = '10.5px ' + MONO;
+    const Q0 = new Path2D(), Q1 = new Path2D();
     for (const p of L.ports) {
-      const v = this.dv(p.net), h = hotNet === p.net;
-      const name = C.nets[p.net].name;
-      c.fillStyle = h ? '#12303f' : v ? '#3a2f10' : '#22262c';
-      c.beginPath(); c.moveTo(2, p.y - 7); c.lineTo(PORTW - 8, p.y - 7); c.lineTo(PORTW, p.y); c.lineTo(PORTW - 8, p.y + 7); c.lineTo(2, p.y + 7); c.closePath(); c.fill();
-      c.strokeStyle = h ? COL.hot : v ? COL.wire1 : '#4a525c'; c.lineWidth = 1; c.stroke();
-      c.fillStyle = v ? '#ffe7a0' : '#aab2bc'; c.fillText(name.slice(0, 8), 6, p.y + 4);
+      const q = this.dv(p.net) ? Q1 : Q0;
+      q.moveTo(2, p.y - 7); q.lineTo(PORTW - 8, p.y - 7); q.lineTo(PORTW, p.y); q.lineTo(PORTW - 8, p.y + 7); q.lineTo(2, p.y + 7); q.closePath();
     }
-    // ゲート
+    c.lineWidth = 1;
+    c.fillStyle = '#22262c'; c.fill(Q0); c.strokeStyle = '#4a525c'; c.stroke(Q0);
+    c.fillStyle = '#3a2f10'; c.fill(Q1); c.strokeStyle = COL.wire1; c.stroke(Q1);
+    if (!small) {
+      c.font = '10.5px ' + MONO;
+      for (const p of L.ports) { const v = this.dv(p.net); c.fillStyle = hotNet === p.net ? COL.hot : v ? '#ffe7a0' : '#aab2bc'; c.fillText(C.nets[p.net].name.slice(0, 8), 6, p.y + 4); }
+    }
+    // ゲート（値ごとにまとめる）
+    const G0 = new Path2D(), G1 = new Path2D();
+    for (const g of L.gs) { const P = L.pos[g.id]; this.gatePath(this.dv(g.out) ? G1 : G0, g, P.x, P.y, P.w, P.h); }
+    c.lineWidth = 1.3;
+    c.fillStyle = COL.gateFill; c.fill(G0); c.strokeStyle = COL.gate; c.stroke(G0);
+    c.fillStyle = '#2a2616'; c.fill(G1); c.strokeStyle = COL.wire1; c.stroke(G1);
+    if (this.hot && this.hot.gate != null && L.pos[this.hot.gate]) { const g = C.gates[this.hot.gate], P = L.pos[g.id]; const hp = new Path2D(); this.gatePath(hp, g, P.x, P.y, P.w, P.h); c.strokeStyle = COL.hot; c.lineWidth = 2.4; c.stroke(hp); }
+    // 出力ラベルと DFF の文字
+    const O0 = new Path2D(), O1 = new Path2D();
     for (const g of L.gs) {
-      const P = L.pos[g.id];
-      const v = this.dv(g.out), h = this.hot && this.hot.gate === g.id;
-      this.gate(c, g, P.x, P.y, P.w, P.h, v, h);
-      if (L.usedOut.has(g.out) || g.type === 'DFF') {
-        const name = C.nets[g.out].name, xo = P.x + P.w + (this.bubble(g) ? 5 : 0);
-        c.strokeStyle = v ? COL.wire1 : COL.wire0; c.lineWidth = 1.2; c.beginPath(); c.moveTo(xo, P.y + P.h / 2); c.lineTo(xo + 12, P.y + P.h / 2); c.stroke();
-        c.fillStyle = v ? '#ffe7a0' : '#8b939d'; c.font = '10px ' + MONO; c.fillText(name, xo + 14, P.y + P.h / 2 + 3.5);
+      if (!(L.usedOut.has(g.out) || g.type === 'DFF')) continue;
+      const P = L.pos[g.id], xo = P.x + P.w + (this.bubble(g) ? 5 : 0), q = this.dv(g.out) ? O1 : O0;
+      q.moveTo(xo, P.y + P.h / 2); q.lineTo(xo + 12, P.y + P.h / 2);
+    }
+    c.lineWidth = 1.2; c.strokeStyle = COL.wire0; c.stroke(O0); c.strokeStyle = COL.wire1; c.stroke(O1);
+    if (!small) {
+      c.font = '10px ' + MONO;
+      for (const g of L.gs) {
+        const P = L.pos[g.id], v = this.dv(g.out);
+        if (L.usedOut.has(g.out) || g.type === 'DFF') { const xo = P.x + P.w + (this.bubble(g) ? 5 : 0); c.fillStyle = v ? '#ffe7a0' : '#8b939d'; c.fillText(C.nets[g.out].name, xo + 14, P.y + P.h / 2 + 3.5); }
+        if (g.type === 'DFF') { c.fillStyle = v ? '#ffe7a0' : '#9aa3ad'; c.font = '9px ' + MONO; c.fillText('D', P.x + 3, P.y + 12); c.fillText('Q', P.x + P.w - 10, P.y + 12); c.fillText(v ? '1' : '0', P.x + P.w / 2 - 2, P.y + P.h - 5); c.font = '10px ' + MONO; }
+        else if (g.base === 'CONST') { c.fillStyle = '#9aa3ad'; c.fillText(g.type === 'CONST1' ? '1' : '0', P.x + 8, P.y + 12); }
       }
     }
     c.restore();
   }
-  bubble(g) { return g.type === 'NOT' || g.type.startsWith('NOR'); }
+  gatePath(p, g, x, y, w, h) {
+    const t = g.base;
+    if (t === 'AND') { p.moveTo(x, y); p.lineTo(x + w * 0.45, y); p.bezierCurveTo(x + w * 1.05, y, x + w * 1.05, y + h, x + w * 0.45, y + h); p.lineTo(x, y + h); p.closePath(); }
+    else if (t === 'OR' || t === 'XOR' || t === 'NOR') { p.moveTo(x, y); p.quadraticCurveTo(x + w * 0.7, y, x + w, y + h / 2); p.quadraticCurveTo(x + w * 0.7, y + h, x, y + h); p.quadraticCurveTo(x + w * 0.3, y + h / 2, x, y); p.closePath(); }
+    else if (t === 'NOT') { p.moveTo(x, y + 2); p.lineTo(x + w - 2, y + h / 2); p.lineTo(x, y + h - 2); p.closePath(); }
+    else if (t === 'DFF') { p.rect(x, y, w, h); p.moveTo(x, y + h - 9); p.lineTo(x + 6, y + h - 5); p.lineTo(x, y + h - 1); }
+    else p.rect(x, y, w, h);
+    if (t === 'XOR') { p.moveTo(x - 4, y); p.quadraticCurveTo(x + w * 0.3 - 4, y + h / 2, x - 4, y + h); }
+    if (this.bubble(g)) { p.moveTo(x + w + 5.1, y + h / 2); p.arc(x + w + 2.5, y + h / 2, 2.6, 0, 7); }
+  }
+  bubble(g) { return g.base === 'NOT' || g.base === 'NOR'; }
   gate(c, g, x, y, w, h, v, hot) {
     c.lineWidth = hot ? 2.2 : 1.3;
     c.strokeStyle = hot ? COL.hot : v ? COL.wire1 : COL.gate;
@@ -538,37 +584,35 @@ class CircuitPanel {
     else if (t.startsWith('CONST')) c.fillText(t === 'CONST1' ? '1' : '0', x + 8, y + 12);
   }
   drawRomSch(c, ox, oy) {
-    const P = this.prog, pc = this.busv('PC', 5), ROMv = this.dep[this.N.I0] <= this.wave;
+    const P = this.prog, pc = this.busv('PC', 6), ROMv = this.dep[this.N.I0] <= this.wave;
     c.save(); c.translate(ox, oy);
-    // 行デコーダ
-    c.fillStyle = COL.gateFill; c.strokeStyle = COL.gate; c.lineWidth = 1.3; c.fillRect(70, 10, 70, 32 * 14 + 10); c.strokeRect(70, 10, 70, 32 * 14 + 10);
-    c.fillStyle = '#9aa3ad'; c.font = '10px ' + MONO; c.fillText('5→32', 86, 26); c.fillText('行', 98, 40); c.fillText('デコーダ', 80, 54);
-    for (let i = 0; i < 5; i++) {
-      const v = this.V('PC' + i), y = 80 + i * 40;
+    const top = 18, rh = 12, mx = 170, cw = 26;
+    c.fillStyle = COL.gateFill; c.strokeStyle = COL.gate; c.lineWidth = 1.3; c.fillRect(70, 6, 70, 64 * rh + 8); c.strokeRect(70, 6, 70, 64 * rh + 8);
+    c.fillStyle = '#9aa3ad'; c.font = '10px ' + MONO; c.fillText('6→64', 86, 26); c.fillText('行', 98, 40); c.fillText('デコーダ', 80, 54);
+    for (let i = 0; i < 6; i++) {
+      const v = this.V('PC' + i), y = 90 + i * 40;
       c.strokeStyle = v ? COL.wire1 : COL.wire0; c.beginPath(); c.moveTo(56, y); c.lineTo(70, y); c.stroke();
       c.fillStyle = v ? '#3a2f10' : '#22262c'; c.fillRect(2, y - 7, 54, 14); c.fillStyle = v ? '#ffe7a0' : '#aab2bc'; c.fillText('PC' + i, 8, y + 4);
     }
-    const mx = 170, cw = 32, rh = 14, top = 18;
-    for (let a = 0; a < 32; a++) {
+    for (let a = 0; a < 64; a++) {
       const y = top + a * rh, sel = a === pc && ROMv;
-      c.strokeStyle = sel ? COL.wire1 : '#2c333b'; c.lineWidth = sel ? 1.8 : 1;
-      c.beginPath(); c.moveTo(140, y); c.lineTo(mx + 10 * cw, y); c.stroke();
-      c.fillStyle = sel ? '#fff' : '#58616b'; c.font = '9px ' + MONO; c.fillText(String(a).padStart(2, '0'), 146, y - 2);
+      c.strokeStyle = sel ? COL.wire1 : '#2c333b'; c.lineWidth = sel ? 1.8 : 0.8;
+      c.beginPath(); c.moveTo(140, y); c.lineTo(mx + 16 * cw, y); c.stroke();
+      if (a < P.words.length || sel) { c.fillStyle = sel ? '#fff' : '#58616b'; c.font = '8.5px ' + MONO; c.fillText(String(a).padStart(2, '0'), 146, y - 2); }
     }
-    for (let k = 0; k < 10; k++) {
-      const bit = 9 - k, x = mx + k * cw + cw / 2, v = this.V('I' + bit);
-      c.strokeStyle = v ? COL.wire1 : '#2c333b'; c.lineWidth = v ? 1.6 : 1;
-      c.beginPath(); c.moveTo(x, top - 8); c.lineTo(x, top + 32 * rh + 20); c.stroke();
-      c.fillStyle = k < 3 ? COL.op : k < 5 ? COL.rr : COL.ad; c.font = '10px ' + MONO; c.fillText('I' + bit, x - 6, top + 32 * rh + 34);
-      c.fillStyle = v ? '#3a2f10' : '#22262c'; c.fillRect(x - 10, top + 32 * rh + 40, 20, 14); c.fillStyle = v ? '#ffe7a0' : '#aab2bc'; c.fillText(String(v), x - 3, top + 32 * rh + 51);
+    const H = top + 64 * rh;
+    for (let k = 0; k < 16; k++) {
+      const bit = 15 - k, x = mx + k * cw + cw / 2, v = this.V('I' + bit);
+      c.strokeStyle = v ? COL.wire1 : '#2c333b'; c.lineWidth = v ? 1.6 : 0.8;
+      c.beginPath(); c.moveTo(x, top - 8); c.lineTo(x, H + 16); c.stroke();
+      c.fillStyle = k < 4 ? COL.op : k < 7 ? COL.rr : k < 10 ? '#f07178' : COL.ad; c.font = '9.5px ' + MONO; c.fillText('I' + bit, x - 7, H + 30);
+      c.fillStyle = v ? '#3a2f10' : '#22262c'; c.fillRect(x - 9, H + 36, 18, 14); c.fillStyle = v ? '#ffe7a0' : '#aab2bc'; c.fillText(String(v), x - 3, H + 47);
     }
-    for (let a = 0; a < Math.min(32, P.words.length); a++) {
-      for (let k = 0; k < 10; k++) if ((P.words[a] >> (9 - k)) & 1) {
-        const sel = a === pc && ROMv;
-        c.beginPath(); c.arc(mx + k * cw + cw / 2, top + a * rh, sel ? 4 : 3, 0, 7); c.fillStyle = sel ? COL.wire1 : '#8a7a4a'; c.fill();
-      }
+    for (let a = 0; a < Math.min(64, P.words.length); a++) for (let k = 0; k < 16; k++) if ((P.words[a] >> (15 - k)) & 1) {
+      const sel = a === pc && ROMv;
+      c.beginPath(); c.arc(mx + k * cw + cw / 2, top + a * rh, sel ? 3.6 : 2.6, 0, 7); c.fillStyle = sel ? COL.wire1 : '#8a7a4a'; c.fill();
     }
-    c.fillStyle = '#7d8590'; c.font = '10px ' + MONO; c.fillText('● = その行・その列が 1（ダイオード）。選ばれた行の ● がビット線を 1 にする（ワイヤード OR）', 0, top + 32 * rh + 76);
+    c.fillStyle = '#7d8590'; c.font = '10px ' + MONO; c.fillText('● = その行・その列が 1（ダイオード）。選ばれた行の ● がビット線を 1 にする（ワイヤード OR）', 0, H + 70);
     c.restore();
   }
 
@@ -611,12 +655,12 @@ class CircuitPanel {
   traceInfo() {
     const sim = this.app.sim; if (!sim || !this.C) return null;
     this.prep();
-    const ck = sim.ck, v = ck.v, N = this.N, g = n => v[N[n]];
-    const op = (g('I9') << 2) | (g('I8') << 1) | g('I7');
+    const v = sim.ck.v, N = this.N, g = n => v[N[n]];
     const bus = (p, n) => { let x = 0; for (let i = 0; i < n; i++) x |= v[N[p + i]] << i; return x; };
-    const sum = CPU.ISA[op].name + '  rr=' + CPU.bin((bus('I', 10) >> 5) & 3, 2) + '  X=' + CPU.bin(bus('X', 8), 8) + '  Y=' + CPU.bin(bus('Y', 8), 8) + '  Z=' + g('Z') + '  BR=' + g('BR') + '  HOLD=' + g('HOLD') + '  NPC=' + CPU.bin(bus('NPC', 5), 5);
+    const op = bus('I', 16) >> 12;
+    const sum = CPU.ISA[op].name + '  X=' + CPU.bin(bus('X', 8), 8) + '  W=' + CPU.bin(bus('W', 8), 8) + '  Y=' + CPU.bin(bus('Y', 8), 8) + '  Z=' + g('Z') + '  BR=' + g('BR') + '  C_D=' + g('C_D') + '  NPC=' + CPU.bin(bus('NPC', 6), 6);
     if (sim.halted) return { level: 'circ', id: 'G-DFF', title: '停止（HALTED = 1, クロック無効）', body: '' };
-    if (this.clk) return { level: 'circ', id: 'G-CLK', title: 'クロック↑: 全 DFF が Q ← D', body: 'PC ← ' + CPU.bin(bus('NPC', 5), 5) + (g('WE') ? ',  R[' + CPU.REGN[(bus('I', 10) >> 5) & 3] + '] ← Y = ' + CPU.bin(bus('Y', 8), 8) : '') };
+    if (this.clk) return { level: 'circ', id: 'G-CLK', title: 'クロック↑: 全 DFF が Q ← D', body: 'PC ← ' + CPU.bin(bus('NPC', 6), 6) + (g('WE') ? ',  R[' + CPU.REGN[(bus('I', 16) >> 9) & 7] + '] ← Y = ' + CPU.bin(bus('Y', 8), 8) : '') + ',  C ← ' + g('C_D') };
     return { level: 'circ', id: 'G-PROP', title: '組合せ回路の伝搬  深さ ' + Math.min(this.C.maxDepth, Math.floor(this.wave)) + '/' + this.C.maxDepth, body: '確定後: ' + sum };
   }
 }

@@ -16,7 +16,8 @@ app.panels.asm = new window.AsmPanel($('#asm-body'), app);
 app.panels.mc = new window.McPanel($('#mc-body'), app);
 app.panels.circ = new window.CircuitPanel($('#circ-body'), app);
 app.panels.tm = new window.TMPanel($('#tm-body'), app);
-const ORDER = ['c', 'asm', 'mc', 'circ', 'tm'];
+app.panels.flow = new window.FlowPanel($('#flow-body'), app);
+const ORDER = ['c', 'asm', 'mc', 'circ', 'flow', 'tm'];
 
 /* ---------------- プログラム ---------------- */
 const sel = $('#prog');
@@ -37,6 +38,7 @@ app.loadSource = (src, mode) => {
   app.panels.mc.load(prog);
   app.panels.circ.load(prog);
   app.panels.tm.load(prog);
+  app.panels.flow.load(prog);
   app.setRunning(false);
   app.refresh(true);
   return true;
@@ -52,6 +54,7 @@ app.setRunning = r => {
 $('#b-play').onclick = () => { if (app.sim && app.sim.halted) { app.sim.reset(); app.refresh(true); } app.setRunning(!app.running); };
 $('#b-step').onclick = () => { app.setRunning(false); if (app.sim) { app.sim.stepInstr(); app.refresh(true); } };
 $('#b-micro').onclick = () => { app.setRunning(false); if (app.sim) { const n = app.sim.instr; app.sim.microStep(); app.refresh(app.sim.instr !== n); } };
+$('#b-end').onclick = () => { app.setRunning(false); if (app.sim) { app.sim.runToEnd(200000); app.refresh(true); } };
 $('#b-reset').onclick = () => { app.setRunning(false); if (app.sim) { app.sim.reset(); app.refresh(true); } };
 const sp = $('#speed'), spo = $('#speed-out');
 const speedOf = v => 0.1 * Math.pow(10, v / 1000 * 3.6);
@@ -76,7 +79,7 @@ app.setMode = (mode, focus) => {
     el.classList.remove('thumb');
     let lod = mode;
     if (mode === 'detail') {
-      if (id === app.focus) { el.style.gridColumn = '1'; el.style.gridRow = '1 / 5'; lod = 'detail'; }
+      if (id === app.focus) { el.style.gridColumn = '1'; el.style.gridRow = '1 / 6'; lod = 'detail'; }
       else { el.style.gridColumn = '2'; el.style.gridRow = String(row++); el.classList.add('thumb'); lod = 'overview'; }
     }
     el.querySelector('.lod').textContent = LODNAME[lod];
@@ -101,13 +104,13 @@ app.refreshTrace = () => {
 /* ---------------- 状態表示 ---------------- */
 app.refresh = (instrChanged) => {
   const sim = app.sim; if (!sim) return;
-  if (instrChanged) { app.panels.c.update(); app.panels.asm.update(); app.panels.mc.update(); }
+  if (instrChanged) { app.panels.c.update(); app.panels.asm.update(); app.panels.mc.update(); app.panels.flow.update(); }
   app.panels.tm.update();
   const ck = sim.check;
   const cs = $('#consist');
   const n = sim.cI ? 5 : 4;
   cs.className = 'consist ' + (ck.ok ? 'ok' : 'ng');
-  cs.textContent = ck.ok ? '一致 ✓ ' + n + '/' + n : '不一致 ✗';
+  cs.textContent = ck.ok ? '一致 ✓ ' + n + '/' + n + (sim.cI && !ck.cSync ? '（C は命令の途中）' : '') : '不一致 ✗';
   cs.title = ck.ok ? '命令ごとに、C・ASM・機械語・回路・TM のレジスタ / PC / 停止状態を突き合わせています' : ck.bad.join('\n');
   const sb = $('#statusbar');
   sb.classList.toggle('ng', !ck.ok); sb.classList.toggle('halted', sim.halted);
@@ -130,9 +133,10 @@ function loop(t) {
   }
   if (sim) {
     // DOM は毎秒 30 回まで
-    if (t - lastDom > 33 && (app.running || pendingInstr)) { app.refresh(pendingInstr); pendingInstr = false; lastDom = t; }
+    if (t - lastDom > (app.mode === 'full' ? 90 : 33) && (app.running || pendingInstr)) { app.refresh(pendingInstr); pendingInstr = false; lastDom = t; }
     app.panels.circ.frame(dt);
     app.panels.tm.frame(dt);
+    app.panels.flow.frame(dt);
     if (t - lastTrace > 120) { app.refreshTrace(); lastTrace = t; }
   }
   requestAnimationFrame(loop);
@@ -148,13 +152,16 @@ const CATS = [
   { id: 'circ', name: '論理回路', f: d => d.level === 'circ' },
   { id: 'gates', name: '全ゲート', gates: true },
   { id: 'tm', name: 'TM の定義', f: d => d.level === 'tm' && !d.rule },
+  { id: 'tmd', name: 'TM の設計（翻訳の考え方）', f: d => d.level === 'tmd' },
+  { id: 'code', name: 'TM の擬似コード', code: true },
   { id: 'states', name: 'TM の状態', states: true },
   { id: 'delta', name: 'TM の遷移 δ', f: d => !!d.rule },
 ];
 let defCat = 'c';
 function defItems(cat) {
   if (cat.gates) { const C = CPU.Circuit.netlist; return C.gates.map(g => ({ id: 'gate#' + g.id, title: g.role, body: CPU.DEFS[g.def].title + ' — ' + CPU.DEFS[g.def].body + '\nブロック: ' + CPU.BLOCKS.find(b => b.id === g.block).name })); }
-  if (cat.states) { const M = CPU.TM.machine; return M.states.map(q => ({ id: 'state ' + q, title: q, body: M.info[q].desc + '\n' + CPU.PHASE[M.info[q].phase].name + '  ≙  CPU の ' + CPU.PHASE[M.info[q].phase].cpu })); }
+  if (cat.code) return CPU.TM_CODE.map(l => ({ id: 'line ' + l.id, title: l.text.trim(), body: l.why + '\n状態: ' + CPU.TM.machine.states.filter(q => CPU.TM.machine.info[q].line === l.id).join(', ') }));
+  if (cat.states) { const M = CPU.TM.machine; return M.states.map(q => ({ id: 'state ' + q, title: q, body: M.info[q].desc + '\n擬似コード: ' + CPU.TM_CODE.find(l => l.id === M.info[q].line).text.trim() + '\n' + CPU.PHASE[M.info[q].phase].name + '  ≙  CPU の ' + CPU.PHASE[M.info[q].phase].cpu })); }
   return Object.values(CPU.DEFS).filter(cat.f);
 }
 function renderDefs(hit) {
@@ -190,6 +197,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowRight' && e.shiftKey) { e.preventDefault(); $('#b-micro').click(); }
   else if (e.key === 'ArrowRight') { e.preventDefault(); $('#b-step').click(); }
   else if (e.key === 'r' || e.key === 'R') $('#b-reset').click();
+  else if (e.key === 'e' || e.key === 'E') $('#b-end').click();
   else if (e.key === '1') app.setMode('overview');
   else if (e.key === '2') app.setMode('detail');
   else if (e.key === '3') app.setMode('full');
@@ -201,7 +209,7 @@ document.addEventListener('keydown', e => {
 let v = null;
 try { v = JSON.parse(localStorage.getItem('cpu5-view') || 'null'); } catch (e) {}
 const hash = location.hash.replace('#', '');
-app.loadSource(PROGRAMS[1].src, 'c'); sel.value = 1;
+app.loadSource(PROGRAMS[3].src, 'c'); sel.value = 3;
 app.setMode(['overview', 'detail', 'full'].includes(hash) ? hash : (v && v.mode) || 'overview', v && v.focus);
 requestAnimationFrame(loop);
 })();

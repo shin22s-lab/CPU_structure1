@@ -4,6 +4,7 @@
 const CPU = window.CPU5, U = window.U;
 const LH = 19;
 const C_TYPES = new Set(['unsigned', 'char', 'int', 'void', 'uint8_t', 'register', 'signed', 'short', 'long']);
+window.C_condText = null;
 
 /* ------------------------------------------------------------------ */
 class CodeView {
@@ -144,7 +145,7 @@ function classifyAsm(src) {
       const argS = s0 + tm[2].length;
       const re2 = /[A-Za-z_]\w*|\d+/g; let a;
       while ((a = re2.exec(tm[3]))) {
-        const c = /^\d+$/.test(a[0]) ? 'tk-num' : /^[a-dA-D]$/.test(a[0]) ? 'tk-reg' : 'tk-ref';
+        const c = /^\d+$/.test(a[0]) ? 'tk-num' : /^[a-hA-H]$/.test(a[0]) ? 'tk-reg' : 'tk-ref';
         set(argS + a.index, argS + a.index + a[0].length, c);
       }
     }
@@ -160,7 +161,7 @@ function roleRange(ev, src) {
   if (!ev) return null;
   const n = ev.node;
   switch (ev.role) {
-    case 'inc': case 'dec': return [n.s, n.e];
+    case 'asg': case 'brk': return [n.s, n.e];
     case 'cond': return n.head;
     case 'back': return n.close;
     case 'skip': return n.elseKw || n.close;
@@ -168,8 +169,15 @@ function roleRange(ev, src) {
   }
   return [n.s, n.e];
 }
-const ROLE_JA = { inc: '1 足す', dec: '1 引く', cond: '条件を調べる', back: 'ループの先頭へ戻る', skip: 'else を飛ばす', halt: '停止' };
-const RULE_HERE = { 'T-WHILE': { cond: 0, back: 2, dec: 1 }, 'T-IF': { cond: 0 }, 'T-IFELSE': { cond: 0, skip: 2 } };
+const ROLE_JA = { asg: '代入・計算', cond: '条件を調べる', back: 'ループの先頭へ戻る', skip: 'else を飛ばす', brk: 'ループを抜ける (break)', halt: '停止' };
+const RULE_HERE = { 'T-WHILE': { cond: 0, back: 2 }, 'T-IF': { cond: 0 }, 'T-IFELSE': { cond: 0, skip: 2 } };
+const STRUCT = { while: 'T-WHILE', if: null };
+function condText(c) {
+  if (!c) return '';
+  const a = c.a && c.a.name, b = c.b && c.b.name;
+  return { true: '1', nz: a, z: a + ' == 0', lt: a + ' < ' + b, gt: a + ' > ' + b, le: a + ' <= ' + b, ge: a + ' >= ' + b, eq: a + ' == ' + b, ne: a + ' != ' + b }[c.k];
+}
+function hl(body, k) { return body.split('\n').map((l, i) => i === k ? '<span class="here">' + U.esc(l) + '</span>' : U.esc(l)).join('\n'); }
 
 class CPanel {
   constructor(body, app) {
@@ -242,7 +250,10 @@ class CPanel {
       const walk = n => {
         if (!n) return;
         if (n.k === 'block') return n.body.forEach(walk);
-        if (n.name) { const ln = this.lineOf(n.s); (vals[ln] = vals[ln] || new Set()).add(n.name); }
+        const nm = [];
+        if (n.k === 'asg') { nm.push(n.dst.name); if (n.expr.v && n.expr.v.name) nm.push(n.expr.v.name); if (n.expr.a && n.expr.a.v.name) nm.push(n.expr.a.v.name); if (n.expr.b && n.expr.b.t === 'var') nm.push(n.expr.b.v.name); }
+        if (n.c) { if (n.c.a) nm.push(n.c.a.name); if (n.c.b) nm.push(n.c.b.name); }
+        if (nm.length) { const ln = this.lineOf(n.s); vals[ln] = vals[ln] || new Set(); nm.forEach(x => vals[ln].add(x)); }
         if (n.k === 'while') walk(n.body);
         if (n.k === 'if') { walk(n.then); walk(n.else); }
       };
@@ -271,26 +282,27 @@ class CPanel {
       const a = sim.aI.cur();
       const m = a && a.meta;
       const rule = m && U.def(m.rule);
-      let rt = rule ? U.esc(rule.body) : '';
-      if (rule && RULE_HERE[m.rule] && RULE_HERE[m.rule][m.role] != null) {
-        const ls = rule.body.split('\n'); const k = RULE_HERE[m.rule][m.role];
-        rt = ls.map((l, i) => i === k ? '<span class="here">' + U.esc(l) + '</span>' : U.esc(l)).join('\n');
-      } else if (rule) rt = '<span class="here">' + rt + '</span>';
+      let rt = rule ? hl(rule.body, m.idx) : '';
+      let srt = '';
+      if (m && (m.role === 'cond' || m.role === 'back' || m.role === 'skip')) {
+        const sr = m.node.k === 'while' ? 'T-WHILE' : m.node.else ? 'T-IFELSE' : 'T-IF';
+        if (sr !== m.rule) srt = '<span class="deflink" data-def="' + sr + '">' + U.esc(U.def(sr).title) + '</span><pre class="def">' + hl(U.def(sr).body, RULE_HERE[sr][m.role]) + '</pre>';
+      }
       const cdef = ev && U.def(ev.def);
       let concrete = '';
       if (ev) {
-        const v = cI.env[ev.node.name];
-        if (ev.role === 'cond') concrete = ev.node.name + ' = ' + v + (v ? ' ≠ 0 → ' + (ev.node.k === 'while' ? '本体を実行' : 'then 側') : ' = 0 → ' + (ev.node.k === 'while' ? 'ループを抜ける' : 'else 側'));
-        else if (ev.role === 'inc') concrete = ev.node.name + ' : ' + v + ' → ' + ((v + 1) & 255);
-        else if (ev.role === 'dec') concrete = ev.node.name + ' : ' + v + ' → ' + ((v - 1) & 255);
+        const n = ev.node;
+        if (ev.role === 'cond') { const t = cI.test(n.c); concrete = condText(n.c) + ' → ' + (t ? '真' : '偽') + ' → ' + (n.k === 'while' ? (t ? '本体を実行' : 'ループを抜ける') : (t ? 'then 側' : (n.else ? 'else 側' : '何もしない'))); }
+        else if (ev.role === 'asg') concrete = n.dst.name + ' : ' + cI.env[n.dst.name] + ' → ' + cI.evalExpr(n.expr);
         else concrete = ROLE_JA[ev.role];
+        if (ev.cnt > 1 && m) concrete += '\n（この動作は命令 ' + ev.cnt + ' 個。いま ' + (m.idx + 1) + ' 個目）';
       }
       this.side.innerHTML =
         '<h4>変数（ウォッチ）</h4><div class="box"><table class="watch">' +
         P.c.ast.vars.map(v => '<tr class="' + (changed(v.name) ? 'flash' : '') + '"><td>' + v.name + '</td><td>' + cI.env[v.name] + '</td><td>' + U.bits(cI.env[v.name], 8) + '</td><td class="dim">reg ' + CPU.REGN[v.reg] + '</td></tr>').join('') + '</table></div>' +
         '<h4>いまの動作 — C の意味</h4><div class="box">' + (cdef ? '<span class="deflink" data-def="' + cdef.id + '">' + U.esc(cdef.title) + '</span><pre class="def">' + U.esc(cdef.body) + '</pre><div class="mono" style="margin-top:4px;color:var(--warn)">' + U.esc(concrete) + '</div>' : '<span class="dim">停止しました</span>') + '</div>' +
-        (rule ? '<h4>翻訳規則 — どの命令になったか</h4><div class="box"><span class="deflink" data-def="' + rule.id + '">' + U.esc(rule.title) + '</span><pre class="def">' + rt + '</pre><div class="mono dim" style="margin-top:4px">この命令: @' + a.addr + '  ' + U.esc(CPU.disasm(P.words[a.addr])) + '</div></div>' : '') +
-        (ev && ev.node.sugar ? '<h4>脱糖</h4><div class="box"><pre class="def">' + U.esc(ev.node.sugar) + '</pre></div>' : '');
+        (rule ? '<h4>翻訳規則 — どの命令になったか</h4><div class="box">' + srt + '<span class="deflink" data-def="' + rule.id + '">' + U.esc(rule.title) + '</span><pre class="def">' + rt + '</pre><div class="mono dim" style="margin-top:4px">この命令: @' + a.addr + '  ' + U.esc(CPU.disasm(P.words[a.addr])) + '</div></div>' : '') +
+        (P.c.temp >= 0 ? '<h4>作業用レジスタ</h4><div class="box mono dim">' + CPU.REGN[P.c.temp] + ' = ' + sim.aI.R[P.c.temp] + '（比較・一時計算。C の変数ではない）</div>' : '');
       this.side.querySelectorAll('[data-def]').forEach(e => e.onclick = () => this.app.openDefs(e.dataset.def));
     }
     this.prevEnv = Object.assign({}, cI.env);
@@ -306,11 +318,10 @@ class CPanel {
       const v = vars.find(x => x.name === tok.v);
       if (v) return { level: 'c', id: 'C-VAR', title: 'unsigned char ' + v.name + '  →  レジスタ ' + CPU.REGN[v.reg], body: U.def('C-VAR').body, value: sim && sim.cI ? v.name + ' = ' + sim.cI.env[v.name] + ' = ' + CPU.bin(sim.cI.env[v.name], 8) + '₂' : '' };
     }
-    const map = { while: 'C-WHILE', if: 'C-IF', else: 'C-IF', return: 'C-RET', '++': 'C-INC', '--': 'C-DEC', '+=': 'C-INC', '-=': 'C-DEC', unsigned: 'C-VAR', char: 'C-VAR', uint8_t: 'C-VAR', '=': 'C-ZERO', '}': 'C-END' };
+    const map = { while: 'C-WHILE', for: 'C-WHILE', if: 'C-IF', else: 'C-IF', return: 'C-RET', break: 'C-BREAK', '++': 'C-INC', '--': 'C-DEC', '+=': 'C-INC', '-=': 'C-DEC', '>>=': 'C-ARITH', '<<=': 'C-ARITH', '>>': 'C-ARITH', '<<': 'C-ARITH', '+': 'C-ARITH', '-': 'C-ARITH', '<': 'C-COND', '>': 'C-COND', '<=': 'C-COND', '>=': 'C-COND', '==': 'C-COND', '!=': 'C-COND', '!': 'C-COND', unsigned: 'C-VAR', char: 'C-VAR', uint8_t: 'C-VAR', '=': 'C-ASG', '}': 'C-END' };
     const id = map[tok.v];
-    if (id === 'C-ZERO' && !(P.c && /=\s*0\s*;/.test(src.slice(tok.s, tok.e + 4)))) return null;
     if (id) {
-      const tr = { 'C-WHILE': 'T-WHILE', 'C-IF': 'T-IFELSE', 'C-INC': 'T-INC', 'C-DEC': 'T-DEC', 'C-RET': 'T-RET', 'C-ZERO': 'T-WHILE' }[id];
+      const tr = { 'C-WHILE': 'T-WHILE', 'C-IF': 'T-IFELSE', 'C-INC': 'T-INC', 'C-DEC': 'T-DEC', 'C-RET': 'T-RET', 'C-BREAK': 'T-BREAK', 'C-ASG': 'T-MOV', 'C-ARITH': { '>>=': 'T-SHR', '>>': 'T-SHR', '<<=': 'T-SHL', '<<': 'T-SHL', '+': 'T-ADD', '-': 'T-SUB' }[tok.v], 'C-COND': { '<': 'T-LT', '>': 'T-GT', '<=': 'T-LE', '>=': 'T-GE', '==': 'T-EQ', '!=': 'T-NE', '!': 'T-Z' }[tok.v] }[id];
       const d = U.def(id);
       return { level: 'c', id, title: d.title, body: d.body + (tr ? '\n\n翻訳: ' + U.def(tr).title + '\n' + U.def(tr).body : '') };
     }
@@ -323,14 +334,14 @@ class CPanel {
     if (!ev) return { level: 'c', title: '停止', body: '' };
     const d = U.def(ev.def);
     const a = sim.aI.cur(), m = a && a.meta;
-    return { level: 'c', id: d.id, title: d.title, body: ROLE_JA[ev.role] + (m ? '   ⇒ 翻訳規則 ' + m.rule : '') };
+    return { level: 'c', id: d.id, title: d.title, body: ROLE_JA[ev.role] + (ev.role === 'cond' ? '  (' + condText(ev.node.c) + ' → ' + (sim.cI.test(ev.node.c) ? '真' : '偽') + ')' : '') + (m ? '   ⇒ 翻訳規則 ' + m.rule + (ev.cnt > 1 ? '（' + (m.idx + 1) + '/' + ev.cnt + ' 命令目）' : '') : '') };
   }
 }
 
 /* ------------------------------------------------------------------ */
 /*  アセンブリ パネル                                                   */
 /* ------------------------------------------------------------------ */
-const A_DEF = { INC: 'A-INC', DEC: 'A-DEC', JZ: 'A-JZ', JMP: 'A-JMP', HALT: 'A-HALT' };
+const A_DEF = {}; Object.keys(CPU.OPC).forEach(k => A_DEF[k] = 'A-' + k);
 class AsmPanel {
   constructor(body, app) {
     this.app = app;
@@ -350,13 +361,20 @@ class AsmPanel {
     if (errs.length) this.ed.setDeco({ errLines: new Set(errs.map(e => e.line)) });
   }
   setLOD(l) { this.lod = l; this.side.hidden = l === 'overview'; this.ed.setMinimap(l === 'full'); this.update(); }
-  explain(it, R) {
+  explain(it, R, C) {
     if (!it) return '';
-    const r = CPU.REGN[it.reg], v = R[it.reg];
+    const r = CPU.REGN[it.r], q = CPU.REGN[it.s], v = R[it.r], w = R[it.s];
     switch (it.op) {
-      case 'INC': return r + ' : ' + v + ' → ' + ((v + 1) & 255) + '、次の行へ';
-      case 'DEC': return r + ' : ' + v + ' → ' + ((v - 1) & 255) + '、次の行へ';
-      case 'JZ': return r + ' = ' + v + (v === 0 ? ' = 0 → ' + it.targetText + ' (@' + it.target + ') へ' : ' ≠ 0 → 次の行 (@' + (it.addr + 1) + ')');
+      case 'INC': return r + ' : ' + v + ' → ' + ((v + 1) & 255);
+      case 'DEC': return r + ' : ' + v + ' → ' + ((v - 1) & 255);
+      case 'ADD': return r + ' : ' + v + ' + ' + w + ' = ' + (v + w) + (v + w > 255 ? ' → ' + ((v + w) & 255) + '、C = 1' : '、C = 0');
+      case 'SUB': return r + ' : ' + v + ' − ' + w + ' = ' + ((v - w) & 255) + (v < w ? '（借り）C = 1' : '、C = 0');
+      case 'MOV': return r + ' ← ' + q + ' = ' + w;
+      case 'SHR': return r + ' : ' + v + ' >> 1 = ' + (v >> 1) + '、C = ' + (v & 1);
+      case 'JZ': return r + ' = ' + v + (v === 0 ? ' = 0 → ' + it.targetText + ' (@' + it.target + ') へ' : ' ≠ 0 → 次の行');
+      case 'JNZ': return r + ' = ' + v + (v !== 0 ? ' ≠ 0 → ' + it.targetText + ' (@' + it.target + ') へ' : ' = 0 → 次の行');
+      case 'JC': return 'C = ' + C + (C ? ' → ' + it.targetText + ' へ' : ' → 次の行');
+      case 'JNC': return 'C = ' + C + (!C ? ' → ' + it.targetText + ' へ' : ' → 次の行');
       case 'JMP': return it.targetText + ' (@' + it.target + ') へ';
       case 'HALT': return '停止';
     }
@@ -371,7 +389,7 @@ class AsmPanel {
       const maxc = Math.max(1, ...a.count);
       P.asm.instrs.forEach(x => {
         if (x.line < 0) return;
-        inl[x.line] = '<span class="inlay">@' + String(x.addr).padStart(2, '0') + '  ' + CPU.bin(P.words[x.addr], 10).replace(/^(...)(..)/, '$1 $2 ') + (this.lod === 'full' ? '  ×' + a.count[x.addr] : '') + '</span>';
+        inl[x.line] = '<span class="inlay">@' + String(x.addr).padStart(2, '0') + '  ' + CPU.bin(P.words[x.addr], 16).replace(/^(....)(...)(...)/, '$1 $2 $3 ') + (this.lod === 'full' ? '  ×' + a.count[x.addr] : '') + '</span>';
         if (this.lod === 'full') heat[x.line] = a.count[x.addr] / maxc;
       });
       deco.inlays = inl; deco.heat = heat;
@@ -379,16 +397,16 @@ class AsmPanel {
     this.ed.setDeco(deco);
     this.bar.innerHTML = '<span><b>' + P.words.length + '</b> / 32 語</span><span>ラベル <b>' + Object.keys(P.asm.labels).length + '</b></span>' +
       (P.asm.implicitHalt && P.mode === 'asm' ? '<span>末尾に暗黙の HALT</span>' : '') +
-      '<span class="mono">' + CPU.REGN.map((r, i) => r + '=' + a.R[i]).join('  ') + '</span>';
+      '<span class="mono">' + CPU.REGN.map((r, i) => r + '=' + a.R[i]).join(' ') + '  C=' + a.C + '</span>';
     if (this.lod !== 'overview') {
       const d = it && U.def(A_DEF[it.op]);
       const m = it && it.meta;
       this.side.innerHTML =
-        '<h4>いまの命令 — ニーモニックの意味</h4><div class="box">' + (d ? '<span class="deflink" data-def="' + d.id + '">' + U.esc(d.title) + '</span><pre class="def">' + U.esc(d.body) + '</pre><div class="mono" style="margin-top:4px;color:var(--warn)">' + U.esc(a.halted ? '停止しました' : this.explain(it, a.R)) + '</div>' : '') + '</div>' +
+        '<h4>いまの命令 — ニーモニックの意味</h4><div class="box">' + (d ? '<span class="deflink" data-def="' + d.id + '">' + U.esc(d.title) + '</span><pre class="def">' + U.esc(d.body) + '</pre><div class="mono" style="margin-top:4px;color:var(--warn)">' + U.esc(a.halted ? '停止しました' : this.explain(it, a.R, a.C)) + '</div>' : '') + '</div>' +
         '<h4>アセンブル（→ 機械語）</h4><div class="box mono">' + (it ? '@' + it.addr + '  ' + U.fieldBits(P.words[it.addr]) + '  <span class="dim">0x' + U.hex(P.words[it.addr]) + '</span>' : '') + '</div>' +
         (m ? '<h4>出どころ（C）</h4><div class="box"><span class="deflink" data-def="' + m.rule + '">' + U.esc(U.def(m.rule).title) + '</span> <span class="dim">· ' + m.role + '</span></div>' : '') +
         '<h4>記号表</h4><div class="box"><div class="kv">' + Object.entries(P.asm.labels).map(([k, v]) => '<span>' + U.esc(k) + '</span><span>@' + v + '</span>').join('') + '</div></div>' +
-        '<h4>レジスタ</h4><div class="box"><div class="regs-bin">' + CPU.REGN.map((r, i) => '<span class="' + (it && it.reg === i && it.op !== 'JMP' && it.op !== 'HALT' ? 'on' : 'dim') + '">' + r + '</span><span>' + U.bits(a.R[i], 8) + '</span><span>' + a.R[i] + '</span>').join('') + '</div></div>';
+        '<h4>レジスタと C</h4><div class="box"><div class="regs-bin">' + CPU.REGN.map((r, i) => '<span class="' + (it && (CPU.ISA[CPU.OPC[it.op]].args.includes('r') && it.r === i || CPU.ISA[CPU.OPC[it.op]].args.includes('s') && it.s === i) ? 'on' : 'dim') + '">' + r + '</span><span>' + U.bits(a.R[i], 8) + '</span><span>' + a.R[i] + '</span>').join('') + '<span>C</span><span>' + U.bits(a.C, 1) + '</span><span>' + a.C + '</span></div></div>';
       this.side.querySelectorAll('[data-def]').forEach(e => e.onclick = () => this.app.openDefs(e.dataset.def));
     }
   }
@@ -406,11 +424,11 @@ class AsmPanel {
     if (A_DEF[up]) {
       const d = U.def(A_DEF[up]);
       const ad = P.asm.lineAddr[line];
-      return { level: 'asm', id: d.id, title: d.title, body: d.body + (ad >= 0 ? '\n\n→ 機械語 @' + ad + ' = ' + CPU.bin(P.words[ad], 10) + ' (' + U.def('M-' + CPU.bin(CPU.OPC[up], 3)).title + ')' : '') };
+      return { level: 'asm', id: d.id, title: d.title, body: d.body + (ad >= 0 ? '\n\n→ 機械語 @' + ad + ' = ' + CPU.bin(P.words[ad], 16) + ' (' + U.def('M-' + CPU.bin(CPU.OPC[up], 4)).title + ')' : '') };
     }
     if (w === '.reg') return U.defTip('A-REG');
     if (P.asm.labels[w] !== undefined) return { level: 'asm', id: 'A-LABEL', title: w + ' = @' + P.asm.labels[w], body: U.def('A-LABEL').body };
-    if (/^[a-d]$/i.test(w) && sim) { const i = CPU.REGN.indexOf(w.toLowerCase()); return { level: 'asm', title: 'レジスタ ' + w, body: '8bit 汎用レジスタ（rr = ' + CPU.bin(i, 2) + '）', value: w + ' = ' + sim.aI.R[i] + ' = ' + CPU.bin(sim.aI.R[i], 8) + '₂' }; }
+    if (/^[a-h]$/i.test(w) && sim) { const i = CPU.REGN.indexOf(w.toLowerCase()); return { level: 'asm', title: 'レジスタ ' + w, body: '8bit 汎用レジスタ（番号 ' + CPU.bin(i, 3) + '）', value: w + ' = ' + sim.aI.R[i] + ' = ' + CPU.bin(sim.aI.R[i], 8) + '₂' }; }
     return null;
   }
   traceInfo() {
@@ -418,7 +436,7 @@ class AsmPanel {
     const it = sim.aI.cur();
     if (!it || sim.aI.halted) return { level: 'asm', title: '停止', body: '' };
     const d = U.def(A_DEF[it.op]);
-    return { level: 'asm', id: d.id, title: d.title, body: this.explain(it, sim.aI.R) };
+    return { level: 'asm', id: d.id, title: d.title, body: this.explain(it, sim.aI.R, sim.aI.C) };
   }
 }
 

@@ -7,11 +7,11 @@ U.esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>'
 U.el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 U.bin = CPU.bin;
 U.bits = (v, n, cls) => { let s = ''; const b = CPU.bin(v, n); for (const c of b) s += '<span class="bitc b' + c + '">' + c + '</span>'; return s; };
-U.fieldBits = w => { const b = CPU.bin(w, CPU.IW); return '<span class="k-op">' + b.slice(0, 3) + '</span> <span class="k-rr">' + b.slice(3, 5) + '</span> <span class="k-ad">' + b.slice(5) + '</span>'; };
-U.hex = (w, n) => w.toString(16).toUpperCase().padStart(n || 3, '0');
-U.LVNAME = { c: 'C', t: '翻訳', asm: 'ASM', mc: '機械語', circ: '回路', tm: 'TM' };
-U.LVCOLOR = { c: '#569cd6', t: '#569cd6', asm: '#c586c0', mc: '#ce9178', circ: '#4ec9b0', tm: '#dcdcaa' };
-U.PHCOLOR = { fetch: '#9aa0a6', decode: '#ce9178', rsel: '#c792ea', seek: '#569cd6', alu: '#ffcf4d', zero: '#4ec9b0', adv: '#8fd16a', addr: '#5fd3c4', jump: '#f78c6c', halt: '#f14c4c' };
+U.fieldBits = w => { const b = CPU.bin(w, CPU.IW); return '<span class="k-op">' + b.slice(0, 4) + '</span> <span class="k-rr">' + b.slice(4, 7) + '</span> <span class="k-ss">' + b.slice(7, 10) + '</span> <span class="k-ad">' + b.slice(10) + '</span>'; };
+U.hex = (w, n) => w.toString(16).toUpperCase().padStart(n || 4, '0');
+U.LVNAME = { c: 'C', t: '翻訳', asm: 'ASM', mc: '機械語', circ: '回路', tm: 'TM', tmd: 'TM 設計', flow: 'フロー' };
+U.LVCOLOR = { c: '#569cd6', t: '#569cd6', asm: '#c586c0', mc: '#ce9178', circ: '#4ec9b0', tm: '#dcdcaa', tmd: '#dcdcaa', flow: '#7fd4ff' };
+U.PHCOLOR = { fetch: '#9aa0a6', decode: '#ce9178', operand: '#c792ea', alu: '#ffcf4d', test: '#4ec9b0', flag: '#ff9e64', clean: '#6b7380', adv: '#8fd16a', jump: '#f78c6c', halt: '#f14c4c' };
 
 /* ---- ツールチップ ---- */
 const tip = document.getElementById('tip');

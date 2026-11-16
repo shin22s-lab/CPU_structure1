@@ -13,7 +13,7 @@
 <body>
 <div id="app">
   <header id="titlebar">
-    <div class="brand"><span class="brand-mark">CPU<sup>5</sup></span><span class="brand-sub">C → ASM → 機械語 → 回路 → TM</span></div>
+    <div class="brand"><span class="brand-mark">CPU<sup>5</sup></span><span class="brand-sub">C → ASM → 機械語 → 回路 → TM ＋ フローチャート</span></div>
     <div class="tb-group">
       <label class="sr" for="prog">プログラム</label>
       <select id="prog" title="サンプルプログラム"></select>
@@ -22,6 +22,7 @@
       <button id="b-play" class="btn primary" title="実行 / 一時停止（Space）">▶ 実行</button>
       <button id="b-step" class="btn" title="1 命令進める（→）">⏭ 1命令</button>
       <button id="b-micro" class="btn" title="TM を 1 ステップだけ進める（Shift+→）。他の層もその割合ぶん進む">⏩ TM 1歩</button>
+      <button id="b-end" class="btn" title="最後まで一気に実行（E）">⏭⏭ 最後まで</button>
       <button id="b-reset" class="btn" title="最初に戻す（R）">⟲ リセット</button>
     </div>
     <div class="tb-group speed">
@@ -56,6 +57,10 @@
     <section class="panel" id="p-circ" data-level="circ">
       <div class="ph"><span class="lv lv-circ">回路</span><span class="tab">cpu.board</span><span class="ph-sub">ゲートのネットリストを評価</span><span class="ph-sp"></span><span class="lod"></span><button class="ph-btn" data-focus="circ" title="この層を詳細表示">⤢</button></div>
       <div class="pb" id="circ-body"></div>
+    </section>
+    <section class="panel" id="p-flow" data-level="flow">
+      <div class="ph"><span class="lv lv-flow">流れ</span><span class="tab">main.flow</span><span class="ph-sub">動作フローチャート（構造化 / 基本ブロック）</span><span class="ph-sp"></span><span class="lod"></span><button class="ph-btn" data-focus="flow" title="この層を詳細表示">⤢</button></div>
+      <div class="pb" id="flow-body"></div>
     </section>
     <section class="panel" id="p-tm" data-level="tm">
       <div class="ph"><span class="lv lv-tm">TM</span><span class="tab">machine.tm</span><span class="ph-sub">遷移関数 δ だけでテープを書き換える</span><span class="ph-sp"></span><span class="lod"></span><button class="ph-btn" data-focus="tm" title="この層を詳細表示">⤢</button></div>
@@ -103,6 +108,7 @@
 <script src="view-mc.js"></script>
 <script src="view-circuit.js"></script>
 <script src="view-tm.js"></script>
+<script src="view-flow.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

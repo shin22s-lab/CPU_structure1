@@ -25,7 +25,8 @@
   --mono: "JetBrains Mono", "Cascadia Code", Consolas, Menlo, "Osaka-Mono", monospace;
 }
 html, body { height: 100%; }
-body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.45 var(--ui); overflow: hidden; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.45 var(--ui); overflow: hidden; font-variant-ligatures: none; }
+@media (max-width: 1750px) { .brand-sub { display: none; } }
 * { box-sizing: border-box; }
 button, select, input { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -69,19 +70,21 @@ select { max-width: 220px; }
 /* ---- パネル格子 ---- */
 #grid { flex: 1; min-height: 0; display: grid; gap: 4px; padding: 4px; padding-left: max(4px, env(safe-area-inset-left, 0px)); padding-right: max(4px, env(safe-area-inset-right, 0px)); }
 #grid.mode-overview {
-  grid-template-columns: minmax(260px, 1fr) minmax(380px, 1.75fr) minmax(250px, .95fr);
-  grid-template-rows: 1fr 1fr minmax(190px, .78fr);
-  grid-template-areas: "c circ mc" "asm circ mc" "tm tm tm";
+  grid-template-columns: minmax(260px, 1fr) minmax(380px, 1.75fr) minmax(250px, 1fr);
+  grid-template-rows: 1fr 1fr minmax(190px, .72fr);
+  grid-template-areas: "c circ mc" "asm circ flow" "tm tm tm";
 }
+#grid.mode-overview #p-flow { grid-area: flow; }
 #grid.mode-overview #p-c { grid-area: c; } #grid.mode-overview #p-asm { grid-area: asm; }
 #grid.mode-overview #p-mc { grid-area: mc; } #grid.mode-overview #p-circ { grid-area: circ; } #grid.mode-overview #p-tm { grid-area: tm; }
-#grid.mode-detail { grid-template-columns: minmax(0, 3fr) minmax(240px, 1fr); grid-template-rows: repeat(4, minmax(0, 1fr)); }
+#grid.mode-detail { grid-template-columns: minmax(0, 3fr) minmax(240px, 1fr); grid-template-rows: repeat(5, minmax(0, 1fr)); }
 #grid.mode-full { overflow: auto; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-rows: auto; align-content: start; }
-#grid.mode-full #p-c { grid-column: 1; height: 720px; }
-#grid.mode-full #p-asm { grid-column: 2; height: 720px; }
-#grid.mode-full #p-mc { grid-column: 1 / 3; height: 640px; }
-#grid.mode-full #p-circ { grid-column: 1 / 3; height: 1100px; }
-#grid.mode-full #p-tm { grid-column: 1 / 3; height: 1180px; }
+#grid.mode-full #p-c { grid-column: 1; grid-row: 1; height: 720px; }
+#grid.mode-full #p-asm { grid-column: 2; grid-row: 1; height: 720px; }
+#grid.mode-full #p-mc { grid-column: 2; grid-row: 2; height: 760px; }
+#grid.mode-full #p-flow { grid-column: 1; grid-row: 2; height: 760px; }
+#grid.mode-full #p-circ { grid-column: 1 / 3; grid-row: 3; height: 1200px; }
+#grid.mode-full #p-tm { grid-column: 1 / 3; grid-row: 4; height: 1300px; }
 
 .panel { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--panel); border: 1px solid #111; overflow: hidden; }
 .panel.thumb .ph-sub { display: none; }
@@ -90,6 +93,7 @@ select { max-width: 220px; }
 .ph-sub { color: var(--fg-dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .ph-sp { flex: 1; }
 .lv { height: 100%; display: flex; align-items: center; padding: 0 8px; font: 700 11px var(--mono); color: #111; background: var(--lvc); }
+.lv-flow { --lvc: #7fd4ff; } #p-flow { --lvc: #7fd4ff; }
 .lv-c { --lvc: var(--c); } .lv-asm { --lvc: var(--asm); } .lv-mc { --lvc: var(--mc); } .lv-circ { --lvc: var(--circ); } .lv-tm { --lvc: var(--tm); }
 #p-c { --lvc: var(--c); } #p-asm { --lvc: var(--asm); } #p-mc { --lvc: var(--mc); } #p-circ { --lvc: var(--circ); } #p-tm { --lvc: var(--tm); }
 .lod { font: 10px var(--mono); color: var(--fg-dim); border: 1px solid var(--line); padding: 0 5px; border-radius: 2px; }
@@ -113,7 +117,7 @@ select { max-width: 220px; }
 .mono { font-family: var(--mono); }
 .dim { color: var(--fg-dim); }
 .faint { color: var(--fg-faint); }
-.k-op { color: var(--f-op); } .k-rr { color: var(--f-rr); } .k-ad { color: var(--f-ad); }
+.k-op { color: var(--f-op); } .k-rr { color: var(--f-rr); } .k-ss { color: #f07178; } .k-ad { color: var(--f-ad); }
 pre.def { margin: 4px 0 0; padding: 6px 8px; background: #1a1a1a; border: 1px solid var(--line); border-radius: 3px; font: 11.5px/1.5 var(--mono); white-space: pre-wrap; color: #cfd3da; }
 pre.def .here { background: var(--hl-active); outline: 1px solid var(--hl-active-b); color: #fff; }
 .deflink { color: var(--accent); cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
@@ -125,7 +129,7 @@ pre.def .here { background: var(--hl-active); outline: 1px solid var(--hl-active
 .problems div::before { content: "⊗ "; }
 
 /* ---- エディタ (VSCode 風) ---- */
-.ed { flex: 1; min-height: 0; min-width: 0; position: relative; overflow: auto; background: var(--panel); font: 13px/19px var(--mono); }
+.ed { flex: 1; min-height: 0; min-width: 0; position: relative; overflow: auto; background: var(--panel); font: 13px/19px var(--mono); font-variant-ligatures: none; }
 .ed-inner { position: relative; display: flex; min-height: 100%; width: max-content; min-width: 100%; }
 .ed-gutter { flex: none; position: sticky; left: 0; z-index: 3; background: var(--panel); color: #6e7681; text-align: right; user-select: none; padding: 4px 0; }
 .ed-gutter div { height: 19px; padding: 0 10px 0 22px; position: relative; font-size: 12px; }
@@ -259,3 +263,15 @@ pre.def .here { background: var(--hl-active); outline: 1px solid var(--hl-active
 @media (max-width: 560px) { .side { display: none; } .trow { grid-template-columns: 44px 1fr; } .trow .b { grid-column: 1 / 3; } }
 @media (prefers-reduced-motion: reduce) { .watch .flash { animation: none; } }
 .watch-inline .flash { animation: flash .6s ease-out; border-radius: 2px; }
+
+/* ---- TM のロジック解説 ---- */
+.tm-logic { flex: 1.15; min-width: 0; overflow: auto; border-right: 1px solid #111; font-size: 12px; }
+.tl-h { font: 600 10.5px var(--ui); letter-spacing: .08em; color: var(--fg-dim); margin: 8px 0 3px; }
+.tl-code { font: 11.5px/1.6 var(--mono); padding: 0 6px; }
+.tl-line { padding: 0 6px; border-radius: 2px; color: #9aa3ad; white-space: pre-wrap; cursor: help; }
+.tl-line.on { background: var(--hl-active); color: #fff; outline: 1px solid rgba(255, 204, 0, .5); }
+.tl-why { margin: 8px; padding: 6px 10px 8px; background: #1a1a1a; border: 1px solid var(--line); border-radius: 3px; }
+.tl-rule { font: 12px var(--mono); color: #fff; margin: 2px 0; }
+.tl-rule.next { color: #8fbfff; font-size: 11.5px; }
+.tl-p { line-height: 1.6; margin: 3px 0; }
+.tm-line { color: var(--warn); }
