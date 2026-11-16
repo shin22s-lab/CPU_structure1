@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CPU 五層ビュー</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="titlebar">
+    <div class="brand"><span class="brand-mark">CPU<sup>5</sup></span><span class="brand-sub">C → ASM → 機械語 → 回路 → TM</span></div>
+    <div class="tb-group">
+      <label class="sr" for="prog">プログラム</label>
+      <select id="prog" title="サンプルプログラム"></select>
+    </div>
+    <div class="tb-group ctrl">
+      <button id="b-play" class="btn primary" title="実行 / 一時停止（Space）">▶ 実行</button>
+      <button id="b-step" class="btn" title="1 命令進める（→）">⏭ 1命令</button>
+      <button id="b-micro" class="btn" title="TM を 1 ステップだけ進める（Shift+→）。他の層もその割合ぶん進む">⏩ TM 1歩</button>
+      <button id="b-reset" class="btn" title="最初に戻す（R）">⟲ リセット</button>
+    </div>
+    <div class="tb-group speed">
+      <label for="speed">速度</label>
+      <input id="speed" type="range" min="0" max="1000" value="380">
+      <output id="speed-out">1.0 命令/秒</output>
+    </div>
+    <div class="tb-group seg" role="tablist" aria-label="表示">
+      <button class="seg-b" data-mode="overview" title="5 層を一度に（1）">俯瞰</button>
+      <button class="seg-b" data-mode="detail" title="1 層を大きく、他は縮小（2）">詳細</button>
+      <button class="seg-b" data-mode="full" title="全層を最大の細かさで（3・高負荷）">全体 <small>高負荷</small></button>
+    </div>
+    <div class="tb-group right">
+      <button id="b-defs" class="btn ghost" title="すべての定義を一覧（D）">定義一覧</button>
+      <span id="consist" class="consist ok" title="5 層の状態が一致しているか">一致 ✓</span>
+    </div>
+  </header>
+
+  <main id="grid" class="mode-overview">
+    <section class="panel" id="p-c" data-level="c">
+      <div class="ph"><span class="lv lv-c">C</span><span class="tab">main.c</span><span class="ph-sub">構文木を C の意味論で実行</span><span class="ph-sp"></span><span class="lod"></span><button class="ph-btn" data-focus="c" title="この層を詳細表示">⤢</button></div>
+      <div class="pb" id="c-body"></div>
+    </section>
+    <section class="panel" id="p-asm" data-level="asm">
+      <div class="ph"><span class="lv lv-asm">ASM</span><span class="tab">main.s</span><span class="ph-sub">ニーモニックの意味で実行</span><span class="ph-sp"></span><span class="lod"></span><button class="ph-btn" data-focus="asm" title="この層を詳細表示">⤢</button></div>
+      <div class="pb" id="asm-body"></div>
+    </section>
+    <section class="panel" id="p-mc" data-level="mc">
+      <div class="ph"><span class="lv lv-mc">01</span><span class="tab">main.bin</span><span class="ph-sub">オペコード表で解読して実行</span><span class="ph-sp"></span><span class="lod"></span><button class="ph-btn" data-focus="mc" title="この層を詳細表示">⤢</button></div>
+      <div class="pb" id="mc-body"></div>
+    </section>
+    <section class="panel" id="p-circ" data-level="circ">
+      <div class="ph"><span class="lv lv-circ">回路</span><span class="tab">cpu.board</span><span class="ph-sub">ゲートのネットリストを評価</span><span class="ph-sp"></span><span class="lod"></span><button class="ph-btn" data-focus="circ" title="この層を詳細表示">⤢</button></div>
+      <div class="pb" id="circ-body"></div>
+    </section>
+    <section class="panel" id="p-tm" data-level="tm">
+      <div class="ph"><span class="lv lv-tm">TM</span><span class="tab">machine.tm</span><span class="ph-sub">遷移関数 δ だけでテープを書き換える</span><span class="ph-sp"></span><span class="lod"></span><button class="ph-btn" data-focus="tm" title="この層を詳細表示">⤢</button></div>
+      <div class="pb" id="tm-body"></div>
+    </section>
+  </main>
+
+  <section id="trace" hidden>
+    <div class="tr-head"><span>定義トレース — いま各層を動かしている定義</span><button id="b-trace-x" class="ph-btn" title="閉じる">×</button></div>
+    <div id="trace-rows"></div>
+  </section>
+
+  <footer id="statusbar">
+    <span id="sb-run" class="sb-item">⏸ 一時停止</span>
+    <span id="sb-instr" class="sb-item">命令 0</span>
+    <span id="sb-pc" class="sb-item">PC 0</span>
+    <span id="sb-tm" class="sb-item">TM 0 歩</span>
+    <span id="sb-clk" class="sb-item">クロック 0</span>
+    <span class="sb-sp"></span>
+    <button id="sb-trace" class="sb-item sb-btn" title="いま適用中の定義を表示（T）">定義トレース ▲</button>
+    <span id="sb-mode" class="sb-item">俯瞰</span>
+  </footer>
+</div>
+
+<div id="tip" hidden></div>
+
+<div id="defs" hidden>
+  <div class="defs-box" role="dialog" aria-label="定義一覧">
+    <div class="defs-head">
+      <strong>定義一覧</strong>
+      <input id="defs-q" type="search" placeholder="検索（例: INC_C, FA3, T-WHILE）">
+      <button id="defs-x" class="ph-btn" title="閉じる">×</button>
+    </div>
+    <div class="defs-main">
+      <nav id="defs-nav"></nav>
+      <div id="defs-list"></div>
+    </div>
+  </div>
+</div>
+
+<script src="engine.js"></script>
+<script src="programs.js"></script>
+<script src="ui-common.js"></script>
+<script src="view-code.js"></script>
+<script src="view-mc.js"></script>
+<script src="view-circuit.js"></script>
+<script src="view-tm.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
